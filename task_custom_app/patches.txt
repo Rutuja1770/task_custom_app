@@ -4,3 +4,7 @@
 
 [post_model_sync]
 # Patches added in this section will be executed after doctypes are migrated
+
+task_custom_app.patches.add_two_fields_External_customer
+task_custom_app.patches.add_delayed_by_field
+task_custom_app.patches.add_days_field
