@@ -808,3 +808,19 @@
         grid-template-columns: 1fr;
     }
 }
+
+
+.kpi-card {
+    cursor: pointer;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.kpi-card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 8px 20px rgba(30, 58, 95, 0.12);
+}
+
+.kpi-card:focus-visible {
+    outline: 2px solid #6366F1;
+    outline-offset: 3px;
+}

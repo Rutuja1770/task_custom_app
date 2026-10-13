@@ -4,7 +4,7 @@
  "docstatus": 0,
  "doctype": "Page",
  "idx": 0,
- "modified": "2026-10-12 14:57:00.802009",
+ "modified": "2026-10-13 13:08:14.577571",
  "modified_by": "Administrator",
  "module": "Task Custom App",
  "name": "task-management",
@@ -14,5 +14,6 @@
  "script": null,
  "standard": "Yes",
  "style": null,
- "system_page": 0
+ "system_page": 0,
+ "title": "Task Management"
 }

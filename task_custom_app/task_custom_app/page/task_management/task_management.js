@@ -8,8 +8,7 @@ frappe.pages["task-management"].on_page_load = function (wrapper) {
 
     const $main = $(page.main);
     $main.empty();
-
-    $main.html(`
+    $main.html(`<div class="enterprise-layout">
         <div class="enterprise-layout">
             <aside class="custom-sidebar">
                 <div class="sidebar-logo">
@@ -51,25 +50,29 @@ frappe.pages["task-management"].on_page_load = function (wrapper) {
                         </button>
                     </div>
                 </div>
-
+                
                 <div class="kpi-grid">
-                    <div class="kpi-card purple">
+                    <div class="kpi-card purple" data-kpi="total" role="button" tabindex="0">
                         <h5>📋 Total Tasks</h5>
                         <h2 id="total-tasks">0</h2>
                     </div>
-                    <div class="kpi-card orange">
+
+                    <div class="kpi-card orange" data-kpi="overdue" role="button" tabindex="0">
                         <h5>⏰ Overdue Tasks</h5>
                         <h2 id="overdue-tasks">0</h2>
                     </div>
-                    <div class="kpi-card red">
+
+                    <div class="kpi-card red" data-kpi="critical" role="button" tabindex="0">
                         <h5>🚨 Critical Tasks</h5>
                         <h2 id="critical-tasks">0</h2>
                     </div>
-                    <div class="kpi-card green">
+
+                    <div class="kpi-card green" data-kpi="completed" role="button" tabindex="0">
                         <h5>✅ Completed Tasks</h5>
                         <h2 id="completed-tasks">0</h2>
                     </div>
                 </div>
+
 
                 <div class="dashboard-row">
                     <section class="dashboard-panel">
@@ -117,7 +120,7 @@ frappe.pages["task-management"].on_page_load = function (wrapper) {
                 </div>
             </main>
         </div>
-    `);
+        `);
 
     // Keep all events scoped to this page.
     $main.on("click", "#refresh-dashboard", function () {
@@ -132,15 +135,57 @@ frappe.pages["task-management"].on_page_load = function (wrapper) {
         frappe.new_doc("Task");
     });
 
+    
+    // MY TASKS
     $main.on("click", "#my-task-link", function () {
-        frappe.set_route("List", "Task", {
+        frappe.route_options = {
             assigned_to: frappe.session.user
-        });
+        };
+
+        frappe.set_route("List", "Task", "List");
+
+        setTimeout(() => {
+            const lv = window.cur_list;
+
+            if (lv && lv.filter_area) {
+                lv.filter_area.clear();
+                lv.filter_area.add([
+                    ["Task", "status", "not in", ["Completed", "Cancelled"]],
+                    ["Task", "_assign", "like", "%" + frappe.session.user + "%"]
+                ]);
+            }
+        }, 800);
     });
 
+    // ALL TASKS
     $main.on("click", "#all-task-link", function () {
-        frappe.set_route("List", "Task");
+        frappe.route_options = null;
+
+        frappe.set_route("List", "Task", "List");
+
+        setTimeout(() => {
+            const lv = window.cur_list;
+
+            if (lv && lv.filter_area) {
+                lv.filter_area.clear();
+            }
+        }, 800);
     });
+
+    // My Tasks: open a fresh list with only the current user's tasks
+    // $main.on("click", "#my-task-link", function () {
+    //     frappe.route_options = null;
+
+    //     window.location.href =
+    //         "/desk/task?assigned_to=" +
+    //         encodeURIComponent(frappe.session.user);
+    // });
+
+    // // All Tasks: open a fresh, unfiltered Task List
+    // $main.on("click", "#all-task-link", function () {
+    //     frappe.route_options = null;
+    //     window.location.href = "/desk/task";
+    // });
 
     $main.on("click", "#dashboard-link", function () {
         frappe.set_route("task-management");
@@ -150,9 +195,12 @@ frappe.pages["task-management"].on_page_load = function (wrapper) {
         frappe.set_route("List", "Project");
     });
 
+    // Settings: retain your existing destination for now
     $main.on("click", "#settings-link", function () {
-        frappe.set_route("List", "Task");
+        frappe.route_options = null;
+        window.location.href = "/desk/task";
     });
+
 
     $main.on("change", "#delay-filter", function () {
         const range = $(this).val();
@@ -172,6 +220,20 @@ frappe.pages["task-management"].on_page_load = function (wrapper) {
             frappe.set_route("Form", "Task", task_name);
         }
     });
+
+  
+  // KPI cards
+    $main.on("click", ".kpi-card", function () {
+        open_tasks_by_kpi($(this).attr("data-kpi"));
+    });
+
+    $main.on("keydown", ".kpi-card", function (e) {
+        if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            open_tasks_by_kpi($(this).attr("data-kpi"));
+        }
+    });
+
 
     refresh_dashboard();
 };
@@ -442,6 +504,54 @@ function load_priority_chart() {
         `);
     });
 }
+
+
+
+function open_tasks_by_kpi(kpiType) {
+    if (kpiType === "total") {
+        // Clear route filters
+        frappe.route_options = null;
+
+        // Navigate to the Task List
+        frappe.set_route("List", "Task", "List");
+
+        // Clear any filters retained by the Task List
+        setTimeout(() => {
+            const lv = window.cur_list;
+
+            if (lv && lv.filter_area) {
+                lv.filter_area.clear();
+            }
+        }, 800);
+
+        return;
+    }
+
+    let filters = {};
+
+    if (kpiType === "overdue") {
+        filters = {
+            status: ["not in", ["Completed", "Cancelled"]],
+            custom_delayed_by: [">", 0]
+        };
+    } else if (kpiType === "critical") {
+        filters = {
+            status: ["not in", ["Completed", "Cancelled"]],
+            custom_delayed_by: [">=", 15]
+        };
+    } else if (kpiType === "completed") {
+        filters = {
+            status: "Completed"
+        };
+    }
+
+    frappe.route_options = filters;
+    frappe.set_route("List", "Task", "List");
+}
+
+
+
+
 
 
 
