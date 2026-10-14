@@ -1,4 +1,13 @@
 
+
+function can_view_all_tasks() {
+    const roles = frappe.user_roles || [];
+    return roles.includes("Task Manager");
+}
+
+
+
+
 frappe.pages["task-management"].on_page_load = function (wrapper) {
     const page = frappe.ui.make_app_page({
         parent: wrapper,
@@ -22,9 +31,11 @@ frappe.pages["task-management"].on_page_load = function (wrapper) {
                     <div class="menu-item" id="my-task-link">
                         ✅ My Tasks
                     </div>
-                    <div class="menu-item" id="all-task-link">
-                        📋 All Tasks
-                    </div>
+                    ${can_view_all_tasks() ? `
+                        <div class="menu-item" id="all-task-link">
+                            📋 All Tasks
+                        </div>
+                    ` : ""}
                     <div class="menu-item" id="project-link">
                         📁 Projects
                     </div>
@@ -158,9 +169,18 @@ frappe.pages["task-management"].on_page_load = function (wrapper) {
     });
 
     // ALL TASKS
+   
     $main.on("click", "#all-task-link", function () {
-        frappe.route_options = null;
 
+        // Extra client-side role check
+        if (!can_view_all_tasks()) {
+            frappe.msgprint(
+                "You are not permitted to view All Tasks."
+            );
+            return;
+        }
+
+        frappe.route_options = null;
         frappe.set_route("List", "Task", "List");
 
         setTimeout(() => {
@@ -171,6 +191,7 @@ frappe.pages["task-management"].on_page_load = function (wrapper) {
             }
         }, 800);
     });
+
 
     // My Tasks: open a fresh list with only the current user's tasks
     // $main.on("click", "#my-task-link", function () {
