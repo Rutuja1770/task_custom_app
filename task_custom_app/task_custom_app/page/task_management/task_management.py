@@ -5,66 +5,99 @@ import frappe
 
 
 def get_task_dashboard_scope():
-    """Return the user IDs whose assigned tasks the current user may see."""
+    """Return the users whose assigned tasks are visible in the dashboard."""
 
     user = frappe.session.user
     roles = set(frappe.get_roles(user))
 
-    # Only these explicitly authorized roles see every task.
-    if roles.intersection({"Task Manager", "Main Manager"}):
+    # Main Manager and Task Manager can see all dashboard tasks.
+    if roles.intersection({"Main Manager", "Task Manager"}):
         return None
 
-    # Find the logged-in user's Employee record.
-    employee = frappe.db.get_value(
+    # Find the logged-in user's Employee record in Employee Master.
+    current_employee = frappe.db.get_value(
         "Employee",
         {"user_id": user},
-        ["name", "reports_to"],
-        as_dict=True,
+        "name",
     )
 
-    # Fail closed: a non-manager without an Employee record
-    # sees only tasks assigned directly to their own user.
-    if not employee:
+    # If no Employee record exists, restrict to the logged-in user.
+    if not current_employee:
         return [user]
 
-    # Project Managers can see their direct and indirect
-    # reporting employees across projects.
+    # Project Manager: self + all direct and indirect reporting employees.
     if "Project Manager" in roles:
-        employees = frappe.get_all(
-            "Employee",
-            filters={"status": "Active"},
-            fields=["name", "reports_to", "user_id"],
-        )
+        visible_users = get_reporting_employee_users(user)
 
-        children_by_manager = {}
-        for row in employees:
-            if row.reports_to:
-                children_by_manager.setdefault(
-                    row.reports_to, []
-                ).append(row)
+        # Fail closed if the reporting hierarchy returns no users.
+        if not visible_users:
+            return [user]
 
-        visible_employee_names = {employee.name}
-        pending = [employee.name]
+        return sorted(set(visible_users) | {user})
 
-        while pending:
-            manager_name = pending.pop()
-
-            for child in children_by_manager.get(manager_name, []):
-                if child.name not in visible_employee_names:
-                    visible_employee_names.add(child.name)
-                    pending.append(child.name)
-
-        visible_users = {
-            row.user_id
-            for row in employees
-            if row.name in visible_employee_names and row.user_id
-        }
-        visible_users.add(user)
-
-        return sorted(visible_users)
-
-    # Employees / Task Users see their own assigned tasks.
+    # Employee / Task User: only their own assigned tasks.
     return [user]
+
+# def get_task_dashboard_scope():
+#     """Return the users whose assigned tasks are visible in the dashboard."""
+
+#     user = frappe.session.user
+#     roles = set(frappe.get_roles(user))
+
+#     # Only Main Manager gets unrestricted dashboard counts.
+#     if "Main Manager" in roles:
+#         return None
+
+#     # Find the logged-in user's Employee record.
+#     current_employee = frappe.db.get_value(
+#         "Employee",
+#         {"user_id": user},
+#         "name",
+#     )
+
+#     # Fail closed if no Employee record exists.
+#     if not current_employee:
+#         return [user]
+
+#     # Project Manager: self + all direct and indirect reports.
+#     if "Project Manager" in roles:
+#         employees = frappe.get_all(
+#             "Employee",
+#             filters={"status": "Active"},
+#             fields=["name", "reports_to", "user_id"],
+#             limit_page_length=0,
+#         )
+
+#         children_by_manager = {}
+
+#         for emp in employees:
+#             if emp.reports_to:
+#                 children_by_manager.setdefault(
+#                     emp.reports_to, []
+#                 ).append(emp)
+
+#         visible_employee_names = {current_employee}
+#         pending = [current_employee]
+
+#         while pending:
+#             manager_name = pending.pop()
+
+#             for child in children_by_manager.get(manager_name, []):
+#                 if child.name not in visible_employee_names:
+#                     visible_employee_names.add(child.name)
+#                     pending.append(child.name)
+
+#         visible_users = {
+#             emp.user_id
+#             for emp in employees
+#             if emp.name in visible_employee_names and emp.user_id
+#         }
+
+#         visible_users.add(user)
+#         return sorted(visible_users)
+
+#     # All other users: only their own assigned tasks.
+#     return [user]
 
 
 def get_dashboard_conditions(
@@ -464,15 +497,77 @@ def get_delay_chart_data(
 
 
 
+
 @frappe.whitelist()
 def get_project_filter_options():
-    """Return projects with readable project names."""
-    projects = frappe.get_all(
-        "Project",
-        fields=["name", "project_name"],
-        order_by="project_name asc",
-        limit_page_length=0,
-    )
+    """Return projects based on the logged-in user's task scope."""
+
+    user = frappe.session.user
+    roles = set(frappe.get_roles(user))
+
+    # Main Manager and Task Manager can see all projects.
+    if roles.intersection({"Main Manager", "Task Manager"}):
+        projects = frappe.get_all(
+            "Project",
+            fields=["name", "project_name"],
+            order_by="project_name asc",
+            limit_page_length=0,
+        )
+
+    else:
+        # Use the same assignment scope as the dashboard KPIs.
+        visible_users = get_task_dashboard_scope()
+
+        if not visible_users:
+            return []
+
+        task_filters = [
+            "COALESCE(t.status, '') != 'Cancelled'",
+        ]
+        params = {}
+
+        if visible_users is not None:
+            assignments = []
+
+            for index, assigned_user in enumerate(visible_users):
+                key = f"scope_user_{index}"
+                params[key] = assigned_user
+
+                assignments.append(
+                    f"""
+                    JSON_CONTAINS(
+                        COALESCE(NULLIF(t._assign, ''), '[]'),
+                        JSON_QUOTE(%({key})s)
+                    )
+                    """
+                )
+
+            task_filters.append(
+                "(" + " OR ".join(assignments) + ")"
+                if assignments else "1 = 0"
+            )
+
+        project_names = frappe.db.sql(
+            f"""
+            SELECT DISTINCT t.project
+            FROM `tabTask` t
+            WHERE {" AND ".join(task_filters)}
+              AND COALESCE(t.project, '') != ''
+            """,
+            params,
+            pluck=True,
+        )
+
+        projects = []
+
+        if project_names:
+            projects = frappe.get_all(
+                "Project",
+                filters={"name": ["in", project_names]},
+                fields=["name", "project_name"],
+                order_by="project_name asc",
+                limit_page_length=0,
+            )
 
     return [
         {
@@ -483,14 +578,63 @@ def get_project_filter_options():
     ]
 
 
+
+def get_reporting_employee_users(user):
+    """Get the current employee and all direct/indirect reports."""
+
+    current_employee = frappe.db.get_value(
+        "Employee",
+        {"user_id": user},
+        "name",
+    )
+
+    if not current_employee:
+        return []
+
+    employees = frappe.get_all(
+        "Employee",
+        filters={"status": "Active"},
+        fields=["name", "employee_name", "reports_to", "user_id"],
+        limit_page_length=0,
+    )
+
+    children_by_manager = {}
+
+    for emp in employees:
+        if emp.reports_to:
+            children_by_manager.setdefault(
+                emp.reports_to, []
+            ).append(emp)
+
+    visible_names = {current_employee}
+    pending = [current_employee]
+
+    while pending:
+        manager_name = pending.pop()
+
+        for child in children_by_manager.get(manager_name, []):
+            if child.name not in visible_names:
+                visible_names.add(child.name)
+                pending.append(child.name)
+
+    visible_users = {
+        emp.user_id
+        for emp in employees
+        if emp.name in visible_names and emp.user_id
+    }
+
+    visible_users.add(user)
+    return sorted(visible_users)
+
+
 @frappe.whitelist()
 def get_employee_filter_options():
-    """Return the current user's reporting employees as filter options."""
+    """Return employee filter options based on reporting hierarchy."""
+
     user = frappe.session.user
     roles = set(frappe.get_roles(user))
 
-    # Users authorized to manage all tasks can filter all employees.
-    if roles.intersection({"Task Manager", "Main Manager"}):
+    if "Main Manager" in roles or "Task Manager" in roles:
         employees = frappe.get_all(
             "Employee",
             filters={"status": "Active"},
@@ -499,45 +643,21 @@ def get_employee_filter_options():
             limit_page_length=0,
         )
     else:
-        current_employee = frappe.db.get_value(
-            "Employee",
-            {"user_id": user},
-            "name",
-        )
+        visible_users = get_reporting_employee_users(user)
 
-        if not current_employee:
+        if not visible_users:
             return []
 
-        # Build the reporting hierarchy.
-        all_employees = frappe.get_all(
+        employees = frappe.get_all(
             "Employee",
-            filters={"status": "Active"},
-            fields=["name", "employee_name", "reports_to", "user_id"],
+            filters={
+                "user_id": ["in", visible_users],
+                "status": "Active",
+            },
+            fields=["name", "employee_name", "user_id"],
+            order_by="employee_name asc",
             limit_page_length=0,
         )
-
-        children_by_manager = {}
-        for emp in all_employees:
-            if emp.reports_to:
-                children_by_manager.setdefault(
-                    emp.reports_to, []
-                ).append(emp)
-
-        visible_names = set()
-        pending = [current_employee]
-
-        while pending:
-            manager = pending.pop()
-
-            for child in children_by_manager.get(manager, []):
-                if child.name not in visible_names:
-                    visible_names.add(child.name)
-                    pending.append(child.name)
-
-        employees = [
-            emp for emp in all_employees
-            if emp.name in visible_names
-        ]
 
     return [
         {
@@ -547,6 +667,10 @@ def get_employee_filter_options():
         for emp in employees
         if emp.user_id
     ]
+
+
+
+
 
 
 
