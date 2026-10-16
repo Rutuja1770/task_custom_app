@@ -18,7 +18,7 @@ frappe.pages["task-management"].on_page_load = function (wrapper) {
     const $main = $(page.main);
     $main.empty();
     $main.html(`<div class="enterprise-layout">
-        <div class="enterprise-layout">
+        
             <aside class="custom-sidebar">
                 <div class="sidebar-logo">
                     <h3>📋 Task Management</h3>
@@ -46,21 +46,78 @@ frappe.pages["task-management"].on_page_load = function (wrapper) {
             </aside>
 
             <main class="enterprise-dashboard">
-                <div class="top-header">
-                    <div>
-                        <h2>Task Dashboard 👋</h2>
-                        <p>Monitor tasks, priorities and deadlines.</p>
+                
+            <div class="top-header">
+                <div class="dashboard-heading">
+                    <h2>Task Dashboard 👋</h2>
+                    <p>Monitor tasks, priorities and deadlines.</p>
+                </div>
+
+                        <div class="top-actions">
+                            <button class="btn btn-default" id="toggle-dashboard-filters"
+                                    type="button" aria-expanded="false">
+                                <span class="filter-button-icon">▼</span>
+                                Filters
+                                <span id="active-filter-count" class="filter-count" hidden>0</span>
+                            </button>
+
+                            <button class="btn btn-default" id="refresh-dashboard" type="button">
+                                🔄 Refresh
+                            </button>
+
+                            <button class="btn btn-primary" id="new-task-btn" type="button">
+                                + New Task
+                            </button>
+                        </div>
                     </div>
 
-                    <div class="top-actions">
-                        <button class="btn btn-default" id="refresh-dashboard">
-                            🔄 Refresh
-                        </button>
-                        <button class="btn btn-primary" id="new-task-btn">
-                            + New Task
-                        </button>
+                    <!-- Collapsible dashboard filters -->
+                    <div class="filter-toolbar">
+                        <div id="dashboard-filter-panel" class="dashboard-filter-panel" hidden>
+                            <div class="filter-panel-header">
+                                <div>
+                                    <h4>Filter Tasks</h4>
+                                    <p>Choose filters to update dashboard data.</p>
+                                </div>
+
+                                <button type="button" class="btn btn-default btn-xs"
+                                        id="clear-dashboard-filters">
+                                    Clear
+                                </button>
+                            </div>
+
+                            <div class="dashboard-filters">
+                                <div class="filter-group">
+                                    <label for="filter-project">Project</label>
+                                    <select id="filter-project" class="form-control">
+                                        <option value="">All Projects</option>
+                                    </select>
+                                </div>
+
+                                <div class="filter-group">
+                                    <label for="filter-employee">Employee</label>
+                                    <select id="filter-employee" class="form-control">
+                                        <option value="">All Employees</option>
+                                    </select>
+                                </div>
+
+                                <div class="filter-group">
+                                    <label for="filter-status">Status</label>
+                                    <select id="filter-status" class="form-control">
+                                        <option value="">All Statuses</option>
+                                    </select>
+                                </div>
+
+                                <div class="filter-group">
+                                    <label for="filter-priority">Priority</label>
+                                    <select id="filter-priority" class="form-control">
+                                        <option value="">All Priorities</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
                     </div>
-                </div>
+
                 
                 <div class="kpi-grid">
                     <div class="kpi-card purple" data-kpi="total" role="button" tabindex="0">
@@ -141,6 +198,42 @@ frappe.pages["task-management"].on_page_load = function (wrapper) {
             indicator: "green"
         });
     });
+
+
+
+    
+    // Show / hide all dashboard filters
+    $main.on("click", "#toggle-dashboard-filters", function () {
+        const $panel = $("#dashboard-filter-panel");
+        const $button = $(this);
+        const isOpening = $panel.prop("hidden");
+
+        $panel.prop("hidden", !isOpening);
+
+        $button.attr("aria-expanded", String(isOpening));
+        $button.find(".filter-button-icon").text(
+            isOpening ? "▲" : "▼"
+        );
+
+        $button.toggleClass("filters-open", isOpening);
+    });
+
+    // Clear all four filters
+    $main.on("click", "#clear-dashboard-filters", function () {
+        $("#filter-project").val("");
+        $("#filter-employee").val("");
+        $("#filter-status").val("");
+        $("#filter-priority").val("");
+
+        refresh_dashboard();
+        update_active_filter_count();
+
+        frappe.show_alert({
+            message: "Dashboard filters cleared",
+            indicator: "green"
+        });
+    });
+
 
     $main.on("click", "#new-task-btn", function () {
         frappe.new_doc("Task");
@@ -235,6 +328,27 @@ frappe.pages["task-management"].on_page_load = function (wrapper) {
         load_upcoming_list(days);
     });
 
+    
+    // Refresh dashboard whenever a filter changes
+    $main.on(
+        "change",
+        "#filter-project, #filter-employee, #filter-status, #filter-priority",
+        function () {
+            refresh_dashboard();
+            update_active_filter_count();
+        }
+    );
+
+    // $main.on(
+    //     "change",
+    //     "#filter-project, #filter-employee, #filter-status, #filter-priority",
+    //     function () {
+    //         refresh_dashboard();
+
+    //     }
+    // );
+
+
     $main.on("click", ".task-link, .upcoming-task-link", function () {
         const task_name = $(this).attr("data-task");
         if (task_name) {
@@ -255,13 +369,15 @@ frappe.pages["task-management"].on_page_load = function (wrapper) {
         }
     });
 
-
+    load_dashboard_filter_options();
     refresh_dashboard();
 };
 
 
 function refresh_dashboard() {
     load_dashboard_data();
+    const filters = get_dashboard_filters();
+
     load_delay_chart($("#delay-filter").val() || "All");
     load_deadline_chart($("#deadline-filter").val() || 7);
     load_delay_list($("#delay-filter").val() || "All");
@@ -290,9 +406,13 @@ function call_task_api(method, args, callback) {
 }
 
 
+
 function load_dashboard_data() {
-    call_task_api("get_dashboard_data", {}, function (data) {
-        if (!data) return;
+    call_task_api(
+        "get_dashboard_data",
+        get_dashboard_filters(),
+        function (data) {
+            if (!data) return;
 
         $("#total-tasks").text(data.total_tasks || 0);
         $("#overdue-tasks").text(data.overdue_tasks || 0);
@@ -305,7 +425,9 @@ function load_dashboard_data() {
 function load_delay_chart(delay_range = "All") {
     call_task_api(
         "get_delay_chart_data",
-        { delay_range: delay_range },
+        { 
+        ...get_dashboard_filters(),
+        delay_range: delay_range },
         function (data) {
             if (!data) return;
 
@@ -346,7 +468,8 @@ function load_delay_chart(delay_range = "All") {
 function load_deadline_chart(days = 7) {
     call_task_api(
         "get_deadline_chart_data",
-        { days: Number(days) },
+        { 
+            ...get_dashboard_filters(),days: Number(days) },
         function (tasks) {
             tasks = tasks || [];
 
@@ -392,7 +515,8 @@ function load_deadline_chart(days = 7) {
 function load_delay_list(delay_range = "All") {
     call_task_api(
         "get_delayed_tasks",
-        { delay_range: delay_range },
+        {   ...get_dashboard_filters(),
+            delay_range: delay_range },
         function (tasks) {
             tasks = tasks || [];
 
@@ -421,7 +545,8 @@ function load_delay_list(delay_range = "All") {
 function load_upcoming_list(days = 7) {
     call_task_api(
         "get_upcoming_tasks",
-        { days: Number(days) },
+        { ...get_dashboard_filters(),
+             days: Number(days) },
         function (tasks) {
             tasks = tasks || [];
 
@@ -461,7 +586,10 @@ function load_priority_chart() {
 		"#F47791"  
     ];
 
-    call_task_api("get_priority_data", {}, function (rows) {
+    call_task_api(
+    "get_priority_data",
+    get_dashboard_filters(),
+    function (rows) {
         rows = rows || [];
 
         const priority_map = {};
@@ -572,6 +700,161 @@ function open_tasks_by_kpi(kpiType) {
 
 
 
+
+function load_dashboard_filter_options() {
+        // Project filter: show project title, retain project ID as value
+    call_task_api(
+        "get_project_filter_options",
+        {},
+        function (projects) {
+            const $project = $("#filter-project");
+            const selected = $project.val();
+
+            $project.empty().append(
+                $("<option>", {
+                    value: "",
+                    text: "All Projects"
+                })
+            );
+
+            (projects || []).forEach(project => {
+                $project.append(
+                    $("<option>", {
+                        value: project.value,
+                        text: project.label
+                    })
+                );
+            });
+
+            if (selected) {
+                $project.val(selected);
+            }
+        }
+    );
+
+    // Employee filter: show employees reporting to this user
+    call_task_api(
+        "get_employee_filter_options",
+        {},
+        function (employees) {
+            const $employee = $("#filter-employee");
+            const selected = $employee.val();
+
+            $employee.empty().append(
+                $("<option>", {
+                    value: "",
+                    text: "All Reporting Employees"
+                })
+            );
+
+            (employees || []).forEach(employee => {
+                $employee.append(
+                    $("<option>", {
+                        value: employee.value,
+                        text: employee.label
+                    })
+                );
+            });
+
+            if (selected) {
+                $employee.val(selected);
+            }
+        }
+    );
+
+    // Load Status and Priority from Task DocType metadata
+    frappe.model.with_doctype("Task", function () {
+        const meta = frappe.get_meta("Task");
+        const fields = meta.fields || [];
+
+        // Status options
+        const statusField = fields.find(
+            field => field.fieldname === "status"
+        );
+
+        const $status = $("#filter-status");
+        $status.empty();
+        $status.append(
+            $("<option>", { value: "", text: "All Statuses" })
+        );
+
+        if (statusField && statusField.options) {
+            statusField.options
+                .split("\n")
+                .map(option => option.trim())
+                .filter(Boolean)
+                .forEach(option => {
+                    $status.append(
+                        $("<option>", {
+                            value: option,
+                            text: option
+                        })
+                    );
+                });
+        } else {
+            console.warn("Task status options were not found.");
+        }
+
+        // Priority options
+        const priorityField = fields.find(
+            field => field.fieldname === "custom_task_priority"
+        );
+
+        const $priority = $("#filter-priority");
+        $priority.empty();
+        $priority.append(
+            $("<option>", { value: "", text: "All Priorities" })
+        );
+
+        if (priorityField && priorityField.options) {
+            priorityField.options
+                .split("\n")
+                .map(option => option.trim())
+                .filter(Boolean)
+                .forEach(option => {
+                    $priority.append(
+                        $("<option>", {
+                            value: option,
+                            text: option
+                        })
+                    );
+                });
+        } else {
+            console.warn(
+                "Task custom_task_priority options were not found. " +
+                "Check the Custom Field configuration."
+            );
+        }
+    });
+}
+
+
+
+
+function get_dashboard_filters() {
+    return {
+        project: $("#filter-project").val() || "",
+        employee: $("#filter-employee").val() || "",
+        status: $("#filter-status").val() || "",
+        priority: $("#filter-priority").val() || ""
+    };
+}
+
+
+
+function update_active_filter_count() {
+    const count = [
+        $("#filter-project").val(),
+        $("#filter-employee").val(),
+        $("#filter-status").val(),
+        $("#filter-priority").val()
+    ].filter(value => value !== "").length;
+
+    const $badge = $("#active-filter-count");
+
+    $badge.text(count);
+    $badge.prop("hidden", count === 0);
+}
 
 
 

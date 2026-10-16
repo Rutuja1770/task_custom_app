@@ -55,6 +55,160 @@
         "Segoe UI", sans-serif;
 }
 
+
+
+
+/* ===== FIX TASK DASHBOARD LAYOUT ===== */
+
+/* One horizontal application layout*/
+
+
+
+/* .enterprise-layout {
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: stretch !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    min-height: 100vh;
+    box-sizing: border-box;
+} */
+
+/* Sidebar keeps its intended width */
+/* .enterprise-layout > .custom-sidebar {
+    flex: 0 0 230px !important;
+    width: 230px !important;
+    min-width: 230px !important;
+    box-sizing: border-box;
+} */
+
+/* Main dashboard receives all remaining space */
+/* .enterprise-layout > .enterprise-dashboard {
+    display: block !important;
+    flex: 1 1 0% !important;
+    width: 0 !important;
+    max-width: none !important;
+    min-width: 0 !important;
+    padding: 26px 28px !important;
+    box-sizing: border-box !important;
+    overflow-x: hidden;
+} */
+
+/* Header: heading on left, actions on right */
+/* .enterprise-dashboard .top-header {
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    flex-wrap: wrap !important;
+    gap: 16px;
+    width: 100%;
+    margin-bottom: 24px;
+}
+
+.enterprise-dashboard .dashboard-heading {
+    flex: 1 1 220px;
+    min-width: 0;
+}
+
+.enterprise-dashboard .top-actions {
+    display: flex !important;
+    flex: 0 0 auto;
+    flex-direction: row !important;
+    align-items: center !important;
+    justify-content: flex-end;
+    gap: 8px;
+    width: auto !important;
+} */
+
+/* Four KPI cards with equal widths */
+/* .enterprise-dashboard .kpi-grid {
+    display: grid !important;
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+    gap: 16px;
+    width: 100% !important;
+    min-width: 0;
+    margin-bottom: 22px;
+}
+
+.enterprise-dashboard .kpi-card {
+    width: auto !important;
+    min-width: 0 !important;
+    box-sizing: border-box;
+} */
+
+/* Two equal chart panels per row */
+/* .enterprise-dashboard .dashboard-row {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 18px;
+    width: 100% !important;
+    min-width: 0;
+}
+
+.enterprise-dashboard .dashboard-row.bottom-row {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+}
+
+.enterprise-dashboard .dashboard-panel {
+    width: 100% !important;
+    min-width: 0 !important;
+    box-sizing: border-box;
+}
+
+.enterprise-dashboard #delay-chart,
+.enterprise-dashboard #deadline-chart,
+.enterprise-dashboard #priority-chart {
+    width: 100% !important;
+    min-width: 0;
+} */
+
+/* Responsive layout */
+/* @media (max-width: 1100px) {
+    .enterprise-dashboard {
+        padding: 20px !important;
+    }
+
+    .enterprise-dashboard .kpi-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    }
+
+    .enterprise-dashboard .dashboard-row,
+    .enterprise-dashboard .dashboard-row.bottom-row {
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    }
+}
+
+@media (max-width: 700px) {
+    .enterprise-layout {
+        flex-direction: column !important;
+    }
+
+    .enterprise-layout > .custom-sidebar {
+        flex: 0 0 auto !important;
+        width: 100% !important;
+        min-width: 0 !important;
+    }
+
+    .enterprise-layout > .enterprise-dashboard {
+        width: 100% !important;
+        padding: 14px !important;
+    }
+
+    .enterprise-dashboard .kpi-grid,
+    .enterprise-dashboard .dashboard-row,
+    .enterprise-dashboard .dashboard-row.bottom-row {
+        grid-template-columns: minmax(0, 1fr) !important;
+    }
+
+    .enterprise-dashboard .top-actions {
+        flex-wrap: wrap;
+        justify-content: flex-start;
+    }
+}  */
+
+
 /* ---------- Sidebar ---------- */
 
 .custom-sidebar {
@@ -823,4 +977,305 @@
 .kpi-card:focus-visible {
     outline: 2px solid #6366F1;
     outline-offset: 3px;
+}
+
+
+
+/* ===== Task Dashboard Filter Layout Fix ===== */
+
+.dashboard-filters {
+    display: grid !important;
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+    align-items: end !important;
+    gap: 10px !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    padding: 10px 12px !important;
+    margin: 0 !important;
+    box-sizing: border-box !important;
+}
+
+/* Each filter group */
+.dashboard-filters .filter-group {
+    display: flex !important;
+    flex-direction: column !important;
+    min-width: 0 !important;
+    width: 100% !important;
+    gap: 4px !important;
+}
+
+/* Filter labels */
+.dashboard-filters .filter-group label {
+    font-size: 12px !important;
+    font-weight: 600 !important;
+    line-height: 16px !important;
+    margin: 0 !important;
+    color: #475569 !important;
+}
+
+/* Filter dropdowns */
+.dashboard-filters select,
+#filter-project,
+#filter-employee,
+#filter-status,
+#filter-priority {
+    display: block !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    height: 32px !important;
+    min-height: 32px !important;
+    padding: 4px 8px !important;
+    margin: 0 !important;
+    font-size: 12px !important;
+    border: 1px solid #DCE3ED !important;
+    border-radius: 7px !important;
+    box-sizing: border-box !important;
+}
+
+/* Tablet and mobile */
+@media (max-width: 768px) {
+    .dashboard-filters {
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    }
+}
+
+@media (max-width: 420px) {
+    .dashboard-filters {
+        grid-template-columns: minmax(0, 1fr) !important;
+    }
+}
+
+
+/* 
+.dashboard-filters {
+    display: grid !important;
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+    gap: 12px !important;
+    width: 100% !important;
+    padding: 12px 14px !important;
+    margin: 0 0 16px 0 !important;
+    background: #FFFFFF !important;
+    border: 1px solid #E2E8F0 !important;
+    border-radius: 10px !important;
+    box-sizing: border-box !important;
+}
+
+.dashboard-filters .filter-group {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.dashboard-filters .filter-group label {
+    font-size: 12px !important;
+    font-weight: 600 !important;
+    color: #475569 !important;
+    margin: 0 !important;
+}
+
+@media (max-width: 768px) {
+    .dashboard-filters {
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    }
+} */
+
+
+/* =========================================
+   COLLAPSIBLE DASHBOARD FILTERS
+   ========================================= */
+
+.enterprise-dashboard .top-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 16px;
+    margin-bottom: 16px;
+}
+
+.dashboard-heading {
+    flex: 1 1 220px;
+    min-width: 0;
+}
+
+.enterprise-dashboard .top-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+#toggle-dashboard-filters {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: 36px;
+    padding: 7px 13px;
+    border: 1px solid #DCE4F0;
+    border-radius: 8px;
+    background: #FFFFFF;
+    color: #1E3A5F;
+    font-size: 12px;
+    font-weight: 600;
+    box-shadow: 0 1px 3px rgba(30, 58, 95, 0.04);
+}
+
+#toggle-dashboard-filters:hover,
+#toggle-dashboard-filters.filters-open {
+    background: #EEF2FF;
+    border-color: #C7D2FE;
+    color: #4F46E5;
+}
+
+.filter-button-icon {
+    font-size: 10px;
+    line-height: 1;
+}
+
+.filter-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    border-radius: 10px;
+    background: #6366F1;
+    color: #FFFFFF;
+    font-size: 10px;
+}
+
+/* Toolbar below the main header */
+.filter-toolbar {
+    width: 100%;
+    margin: 0 0 20px;
+}
+
+.dashboard-filter-panel[hidden] {
+    display: none !important;
+}
+
+.dashboard-filter-panel:not([hidden]) {
+    display: block;
+    padding: 15px 16px;
+    border: 1px solid #DCE4F0;
+    border-radius: 11px;
+    background: #FFFFFF;
+    box-shadow: 0 4px 14px rgba(30, 58, 95, 0.045);
+    animation: filter-panel-in 0.16s ease-out;
+}
+
+.filter-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.filter-panel-header h4 {
+    margin: 0 0 3px;
+    color: #1E3A5F;
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.filter-panel-header p {
+    margin: 0;
+    color: #64748B;
+    font-size: 11px;
+}
+
+#clear-dashboard-filters {
+    flex-shrink: 0;
+    padding: 5px 10px;
+    border-radius: 7px;
+    font-size: 11px;
+}
+
+/* Four compact filter dropdowns */
+.enterprise-dashboard .dashboard-filters {
+    display: grid !important;
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+    align-items: end;
+    gap: 12px;
+    width: 100%;
+    padding: 0 !important;
+    margin: 0 !important;
+}
+
+.enterprise-dashboard .dashboard-filters .filter-group {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    width: 100%;
+    min-width: 0;
+}
+
+.enterprise-dashboard .dashboard-filters .filter-group label {
+    margin: 0;
+    color: #475569;
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.enterprise-dashboard .dashboard-filters select {
+    width: 100%;
+    min-width: 0;
+    height: 34px;
+    min-height: 34px;
+    padding: 5px 9px;
+    border: 1px solid #DCE4F0;
+    border-radius: 7px;
+    background: #FFFFFF;
+    color: #334155;
+    font-size: 12px;
+    box-shadow: none;
+}
+
+.enterprise-dashboard .dashboard-filters select:focus {
+    border-color: #6366F1;
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.10);
+}
+
+@keyframes filter-panel-in {
+    from {
+        opacity: 0;
+        transform: translateY(-4px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Tablet */
+@media (max-width: 900px) {
+    .enterprise-dashboard .dashboard-filters {
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    }
+}
+
+/* Mobile */
+@media (max-width: 600px) {
+    .enterprise-dashboard .top-header {
+        align-items: flex-start;
+    }
+
+    .enterprise-dashboard .top-actions {
+        width: 100%;
+        justify-content: flex-start;
+    }
+
+    .enterprise-dashboard .dashboard-filters {
+        grid-template-columns: minmax(0, 1fr) !important;
+    }
+
+    .dashboard-filter-panel:not([hidden]) {
+        padding: 12px;
+    }
 }
