@@ -1,7 +1,20 @@
-
-import json
-
 import frappe
+
+
+DELAY_RANGES = {
+    "1-5 Days": "t.custom_delayed_by BETWEEN 1 AND 5",
+    "6-10 Days": "t.custom_delayed_by BETWEEN 6 AND 10",
+    "11-14 Days": "t.custom_delayed_by BETWEEN 11 AND 14",
+    "15+ Days": "t.custom_delayed_by >= 15",
+}
+
+PRIORITY_UNASSIGNED = "Unassigned"
+
+
+def can_view_all():
+    """Return True when the user may see every task."""
+    roles = set(frappe.get_roles(frappe.session.user))
+    return bool(roles.intersection({"Main Manager", "Task Manager"}))
 
 
 def get_task_dashboard_scope():
@@ -38,66 +51,15 @@ def get_task_dashboard_scope():
     # Employee / Task User: only their own assigned tasks.
     return [user]
 
-# def get_task_dashboard_scope():
-#     """Return the users whose assigned tasks are visible in the dashboard."""
 
-#     user = frappe.session.user
-#     roles = set(frappe.get_roles(user))
-
-#     # Only Main Manager gets unrestricted dashboard counts.
-#     if "Main Manager" in roles:
-#         return None
-
-#     # Find the logged-in user's Employee record.
-#     current_employee = frappe.db.get_value(
-#         "Employee",
-#         {"user_id": user},
-#         "name",
-#     )
-
-#     # Fail closed if no Employee record exists.
-#     if not current_employee:
-#         return [user]
-
-#     # Project Manager: self + all direct and indirect reports.
-#     if "Project Manager" in roles:
-#         employees = frappe.get_all(
-#             "Employee",
-#             filters={"status": "Active"},
-#             fields=["name", "reports_to", "user_id"],
-#             limit_page_length=0,
-#         )
-
-#         children_by_manager = {}
-
-#         for emp in employees:
-#             if emp.reports_to:
-#                 children_by_manager.setdefault(
-#                     emp.reports_to, []
-#                 ).append(emp)
-
-#         visible_employee_names = {current_employee}
-#         pending = [current_employee]
-
-#         while pending:
-#             manager_name = pending.pop()
-
-#             for child in children_by_manager.get(manager_name, []):
-#                 if child.name not in visible_employee_names:
-#                     visible_employee_names.add(child.name)
-#                     pending.append(child.name)
-
-#         visible_users = {
-#             emp.user_id
-#             for emp in employees
-#             if emp.name in visible_employee_names and emp.user_id
-#         }
-
-#         visible_users.add(user)
-#         return sorted(visible_users)
-
-#     # All other users: only their own assigned tasks.
-#     return [user]
+def _assignment_clause(param_name):
+    """Exact JSON match on Task._assign for a single user id."""
+    return f"""
+        JSON_CONTAINS(
+            COALESCE(NULLIF(t._assign, ''), '[]'),
+            JSON_QUOTE(%({param_name})s)
+        )
+    """
 
 
 def get_dashboard_conditions(
@@ -118,15 +80,7 @@ def get_dashboard_conditions(
         for index, user_id in enumerate(visible_users):
             param_name = f"scope_user_{index}"
             params[param_name] = user_id
-
-            assignment_conditions.append(
-                f"""
-                JSON_CONTAINS(
-                    COALESCE(NULLIF(t._assign, ''), '[]'),
-                    JSON_QUOTE(%({param_name})s)
-                )
-                """
-            )
+            assignment_conditions.append(_assignment_clause(param_name))
 
         if assignment_conditions:
             conditions.append(
@@ -141,13 +95,12 @@ def get_dashboard_conditions(
         params["project"] = project
 
     if employee:
-        conditions.append("""
-            JSON_CONTAINS(
-                COALESCE(NULLIF(t._assign, ''), '[]'),
-                JSON_QUOTE(%(employee)s)
-            )
-        """)
-        params["employee"] = employee
+        # Employee filter must stay inside the caller's authorized scope.
+        if visible_users is not None and employee not in visible_users:
+            conditions.append("1 = 0")
+        else:
+            conditions.append(_assignment_clause("employee"))
+            params["employee"] = employee
 
     if status:
         conditions = [
@@ -165,52 +118,6 @@ def get_dashboard_conditions(
 
     return " AND ".join(conditions), params
 
-# =========================================================
-# SHARED DASHBOARD FILTERS
-# =========================================================
-
-# def get_dashboard_conditions(
-#     project=None,
-#     employee=None,
-#     status=None,
-#     priority=None,
-# ):
-#     conditions = ["COALESCE(t.status, '') != 'Cancelled'"]
-#     params = {}
-
-#     if project:
-#         conditions.append("t.project = %(project)s")
-#         params["project"] = project
-
-#     if employee:
-#         # Task._assign stores assigned user IDs as JSON.
-#         # JSON_CONTAINS avoids partial user-ID matches.
-#         conditions.append("""
-#             JSON_CONTAINS(
-#                 COALESCE(NULLIF(t._assign, ''), '[]'),
-#                 JSON_QUOTE(%(employee)s)
-#             )
-#         """)
-#         params["employee"] = employee
-
-#     if status:
-#         # An explicitly selected status, including Cancelled,
-#         # overrides the default Cancelled exclusion.
-#         conditions = [
-#             condition for condition in conditions
-#             if condition != "COALESCE(t.status, '') != 'Cancelled'"
-#         ]
-#         conditions.append("t.status = %(status)s")
-#         params["status"] = status
-
-#     if priority:
-#         conditions.append(
-#             "t.custom_task_priority = %(priority)s"
-#         )
-#         params["priority"] = priority
-
-#     return " AND ".join(conditions), params
-
 
 def get_task_conditions():
     # Backward compatibility with existing code.
@@ -218,8 +125,45 @@ def get_task_conditions():
 
 
 # =========================================================
+# DASHBOARD CONTEXT (role labels / tab visibility)
+# =========================================================
+
+
+@frappe.whitelist()
+def get_dashboard_context():
+    """Return role-driven UI context for the dashboard."""
+
+    user = frappe.session.user
+    roles = set(frappe.get_roles(user))
+    managers = bool(roles.intersection({"Main Manager", "Task Manager"}))
+    is_pm = "Project Manager" in roles
+
+    employee_name = frappe.db.get_value(
+        "Employee",
+        {"user_id": user},
+        "employee_name",
+    )
+
+    if managers:
+        scope_label = "All"
+    elif is_pm:
+        scope_label = "Team"
+    else:
+        scope_label = "My"
+
+    return {
+        "user": user,
+        "scope_label": scope_label,
+        "can_view_all": managers,
+        "can_view_team": managers or is_pm,
+        "employee_name": employee_name or user,
+    }
+
+
+# =========================================================
 # DASHBOARD KPI DATA
 # =========================================================
+
 
 @frappe.whitelist()
 def get_dashboard_data(
@@ -229,7 +173,10 @@ def get_dashboard_data(
     priority=None,
 ):
     conditions, params = get_dashboard_conditions(
-        project, employee, status, priority
+        project=project,
+        employee=employee,
+        status=status,
+        priority=priority,
     )
 
     total_tasks = frappe.db.sql(
@@ -241,15 +188,11 @@ def get_dashboard_data(
         params,
     )[0][0]
 
-    # Completed KPI always counts Completed tasks, while
-    # retaining the selected Project, Employee and Priority.
-    completed_conditions, completed_params = (
-        get_dashboard_conditions(
-            project=project,
-            employee=employee,
-            status="Completed",
-            priority=priority,
-        )
+    completed_conditions, completed_params = get_dashboard_conditions(
+        project=project,
+        employee=employee,
+        status="Completed",
+        priority=priority,
     )
 
     completed_tasks = frappe.db.sql(
@@ -261,24 +204,30 @@ def get_dashboard_data(
         completed_params,
     )[0][0]
 
+    overdue_conditions = conditions + """
+        AND t.status NOT IN ('Completed', 'Cancelled')
+        AND COALESCE(t.custom_delayed_by, 0) > 0
+    """
+
     overdue_tasks = frappe.db.sql(
         f"""
         SELECT COUNT(*)
         FROM `tabTask` t
-        WHERE {conditions}
-          AND t.status != 'Completed'
-          AND COALESCE(t.custom_delayed_by, 0) > 0
+        WHERE {overdue_conditions}
         """,
         params,
     )[0][0]
+
+    critical_conditions = conditions + """
+        AND t.status NOT IN ('Completed', 'Cancelled')
+        AND COALESCE(t.custom_delayed_by, 0) >= 15
+    """
 
     critical_tasks = frappe.db.sql(
         f"""
         SELECT COUNT(*)
         FROM `tabTask` t
-        WHERE {conditions}
-          AND t.status != 'Completed'
-          AND COALESCE(t.custom_delayed_by, 0) >= 15
+        WHERE {critical_conditions}
         """,
         params,
     )[0][0]
@@ -295,6 +244,7 @@ def get_dashboard_data(
 # PRIORITY CHART
 # =========================================================
 
+
 @frappe.whitelist()
 def get_priority_data(
     project=None,
@@ -306,7 +256,7 @@ def get_priority_data(
         project, employee, status, priority
     )
 
-    return frappe.db.sql(
+    rows = frappe.db.sql(
         f"""
         SELECT
             t.custom_task_priority,
@@ -321,10 +271,34 @@ def get_priority_data(
         as_dict=True,
     )
 
+    # Include blank-priority tasks so the donut sums to the Total KPI.
+    unassigned = frappe.db.sql(
+        f"""
+        SELECT COUNT(*)
+        FROM `tabTask` t
+        WHERE {conditions}
+          AND COALESCE(t.custom_task_priority, '') = ''
+        """,
+        params,
+    )[0][0]
+
+    if unassigned:
+        rows.append(
+            frappe._dict(
+                {
+                    "custom_task_priority": PRIORITY_UNASSIGNED,
+                    "count": unassigned,
+                }
+            )
+        )
+
+    return rows
+
 
 # =========================================================
 # DELAYED TASKS
 # =========================================================
+
 
 @frappe.whitelist()
 def get_delayed_tasks(
@@ -344,15 +318,8 @@ def get_delayed_tasks(
         AND COALESCE(t.custom_delayed_by, 0) > 0
     """
 
-    range_conditions = {
-        "0-5 Days": "t.custom_delayed_by BETWEEN 1 AND 5",
-        "5-10 Days": "t.custom_delayed_by BETWEEN 6 AND 10",
-        "10-15 Days": "t.custom_delayed_by BETWEEN 11 AND 14",
-        "15+ Days": "t.custom_delayed_by >= 15",
-    }
-
-    if delay_range in range_conditions:
-        conditions += " AND " + range_conditions[delay_range]
+    if delay_range in DELAY_RANGES:
+        conditions += " AND " + DELAY_RANGES[delay_range]
 
     return frappe.db.sql(
         f"""
@@ -377,6 +344,7 @@ def get_delayed_tasks(
 # =========================================================
 # UPCOMING TASKS
 # =========================================================
+
 
 @frappe.whitelist()
 def get_upcoming_tasks(
@@ -435,6 +403,7 @@ def get_upcoming_tasks(
 # DEADLINE CHART
 # =========================================================
 
+
 @frappe.whitelist()
 def get_deadline_chart_data(
     days=7,
@@ -456,6 +425,7 @@ def get_deadline_chart_data(
 # DELAY CHART
 # =========================================================
 
+
 @frappe.whitelist()
 def get_delay_chart_data(
     delay_range="All",
@@ -472,30 +442,176 @@ def get_delay_chart_data(
         priority=priority,
     )
 
-    buckets = {
-        "0-5 Days": 0,
-        "5-10 Days": 0,
-        "10-15 Days": 0,
-        "15+ Days": 0,
-    }
+    buckets = {key: 0 for key in DELAY_RANGES}
 
     for task in tasks:
         delayed_by = task.get("delayed_by") or 0
 
         if delayed_by <= 5:
-            buckets["0-5 Days"] += 1
+            buckets["1-5 Days"] += 1
         elif delayed_by <= 10:
-            buckets["5-10 Days"] += 1
+            buckets["6-10 Days"] += 1
         elif delayed_by < 15:
-            buckets["10-15 Days"] += 1
+            buckets["11-14 Days"] += 1
         else:
             buckets["15+ Days"] += 1
 
     return buckets
 
 
+# =========================================================
+# TASK TABLE (in-dashboard, KPI-consistent)
+# =========================================================
 
 
+@frappe.whitelist()
+def get_task_list_data(
+    tab="my",
+    kpi_view="",
+    project=None,
+    employee=None,
+    status=None,
+    priority=None,
+    limit=15,
+    offset=0,
+):
+    """Return one page of tasks plus the exact filtered total.
+
+    Uses the same conditions as the KPI cards so counts always match.
+    tab: my | team | all
+    kpi_view: '' | overdue | critical | completed
+    """
+
+    tab = (tab or "my").strip()
+    kpi_view = (kpi_view or "").strip()
+
+    try:
+        limit = int(limit)
+    except (TypeError, ValueError):
+        limit = 15
+
+    try:
+        offset = int(offset)
+    except (TypeError, ValueError):
+        offset = 0
+
+    limit = max(1, min(limit, 100))
+    offset = max(0, offset)
+
+    user = frappe.session.user
+
+    if tab not in ("my", "team", "all"):
+        tab = "my"
+
+    if tab == "all" and not can_view_all():
+        raise frappe.PermissionError(
+            "You are not permitted to view all tasks."
+        )
+
+    # Completed KPI view always means Completed, like get_dashboard_data.
+    effective_status = status
+    if kpi_view == "completed":
+        effective_status = "Completed"
+
+    base_conditions, params = get_dashboard_conditions(
+        project=project,
+        employee=employee,
+        status=effective_status,
+        priority=priority,
+    )
+
+    # get_dashboard_conditions returns a joined string; keep a list of
+    # fragments so tab / KPI overlays can still be appended.
+    conditions = [base_conditions]
+
+    if tab == "my":
+        params["tab_user"] = user
+        conditions.append(_assignment_clause("tab_user"))
+
+    elif tab == "team":
+        visible_users = get_task_dashboard_scope()
+
+        # Managers are unrestricted; team == all for them.
+        if visible_users is not None:
+            team_conditions = []
+
+            for index, user_id in enumerate(visible_users):
+                param_name = f"team_user_{index}"
+                params[param_name] = user_id
+                team_conditions.append(_assignment_clause(param_name))
+
+            if team_conditions:
+                conditions.append(
+                    "(" + " OR ".join(team_conditions) + ")"
+                )
+            else:
+                conditions.append("1 = 0")
+
+    # KPI overlays reuse the exact KPI conditions.
+    if kpi_view == "overdue":
+        conditions.append(
+            "t.status NOT IN ('Completed', 'Cancelled')"
+        )
+        conditions.append("COALESCE(t.custom_delayed_by, 0) > 0")
+
+    elif kpi_view == "critical":
+        conditions.append(
+            "t.status NOT IN ('Completed', 'Cancelled')"
+        )
+        conditions.append("COALESCE(t.custom_delayed_by, 0) >= 15")
+
+    where = " AND ".join(
+        condition for condition in conditions if condition
+    )
+
+    total = frappe.db.sql(
+        f"""
+        SELECT COUNT(*)
+        FROM `tabTask` t
+        WHERE {where}
+        """,
+        params,
+    )[0][0]
+
+    rows = frappe.db.sql(
+        f"""
+        SELECT
+            t.name,
+            t.subject AS task_name,
+            t.status,
+            t.priority,
+            t.custom_task_priority,
+            t.custom_action,
+            COALESCE(t.custom_delayed_by, 0) AS delayed_by,
+            COALESCE(t.custom_days, 0) AS days,
+            t.exp_end_date,
+            t.project,
+            t._assign
+        FROM `tabTask` t
+        WHERE {where}
+        ORDER BY
+            COALESCE(t.custom_delayed_by, 0) DESC,
+            t.exp_end_date ASC,
+            t.name
+        LIMIT %(limit)s OFFSET %(offset)s
+        """,
+        {**params, "limit": limit, "offset": offset},
+        as_dict=True,
+    )
+
+    return {
+        "rows": rows,
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "tab": tab,
+        "kpi_view": kpi_view,
+    }
+
+
+# =========================================================
+# FILTER OPTIONS
+# =========================================================
 
 
 @frappe.whitelist()
@@ -532,15 +648,7 @@ def get_project_filter_options():
             for index, assigned_user in enumerate(visible_users):
                 key = f"scope_user_{index}"
                 params[key] = assigned_user
-
-                assignments.append(
-                    f"""
-                    JSON_CONTAINS(
-                        COALESCE(NULLIF(t._assign, ''), '[]'),
-                        JSON_QUOTE(%({key})s)
-                    )
-                    """
-                )
+                assignments.append(_assignment_clause(key))
 
             task_filters.append(
                 "(" + " OR ".join(assignments) + ")"
@@ -576,7 +684,6 @@ def get_project_filter_options():
         }
         for project in projects
     ]
-
 
 
 def get_reporting_employee_users(user):
@@ -667,11 +774,3 @@ def get_employee_filter_options():
         for emp in employees
         if emp.user_id
     ]
-
-
-
-
-
-
-
-

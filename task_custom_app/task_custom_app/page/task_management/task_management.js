@@ -1,11 +1,31 @@
+const TASK_API =
+    "task_custom_app.task_custom_app.page.task_management.task_management";
+
+const TASK_PAGE_SIZE = 15;
+
+let dashboard_context = {
+    user: "",
+    scope_label: "My",
+    can_view_all: false,
+    can_view_team: false
+};
+
+const table_state = {
+    tab: "my",
+    kpi_view: "",
+    limit: TASK_PAGE_SIZE,
+    offset: 0
+};
 
 
 function can_view_all_tasks() {
+    if (dashboard_context && typeof dashboard_context.can_view_all === "boolean") {
+        return dashboard_context.can_view_all;
+    }
+
     const roles = frappe.user_roles || [];
-    return roles.includes("Task Manager");
+    return roles.includes("Task Manager") || roles.includes("Main Manager");
 }
-
-
 
 
 frappe.pages["task-management"].on_page_load = function (wrapper) {
@@ -18,7 +38,7 @@ frappe.pages["task-management"].on_page_load = function (wrapper) {
     const $main = $(page.main);
     $main.empty();
     $main.html(`<div class="enterprise-layout">
-        
+
             <aside class="custom-sidebar">
                 <div class="sidebar-logo">
                     <h3>📋 Task Management</h3>
@@ -30,6 +50,9 @@ frappe.pages["task-management"].on_page_load = function (wrapper) {
                     </div>
                     <div class="menu-item" id="my-task-link">
                         ✅ My Tasks
+                    </div>
+                    <div class="menu-item" id="team-task-link" hidden>
+                        👥 Team Tasks
                     </div>
                     ${can_view_all_tasks() ? `
                         <div class="menu-item" id="all-task-link">
@@ -46,7 +69,7 @@ frappe.pages["task-management"].on_page_load = function (wrapper) {
             </aside>
 
             <main class="enterprise-dashboard">
-                
+
             <div class="top-header">
                 <div class="dashboard-heading">
                     <h2>Task Dashboard 👋</h2>
@@ -118,25 +141,25 @@ frappe.pages["task-management"].on_page_load = function (wrapper) {
                         </div>
                     </div>
 
-                
+
                 <div class="kpi-grid">
                     <div class="kpi-card purple" data-kpi="total" role="button" tabindex="0">
-                        <h5>📋 Total Tasks</h5>
+                        <h5 id="kpi-total-label">📋 Total Tasks</h5>
                         <h2 id="total-tasks">0</h2>
                     </div>
 
                     <div class="kpi-card orange" data-kpi="overdue" role="button" tabindex="0">
-                        <h5>⏰ Overdue Tasks</h5>
+                        <h5 id="kpi-overdue-label">⏰ Overdue Tasks</h5>
                         <h2 id="overdue-tasks">0</h2>
                     </div>
 
                     <div class="kpi-card red" data-kpi="critical" role="button" tabindex="0">
-                        <h5>🚨 Critical Tasks</h5>
+                        <h5 id="kpi-critical-label">🚨 Critical Tasks</h5>
                         <h2 id="critical-tasks">0</h2>
                     </div>
 
                     <div class="kpi-card green" data-kpi="completed" role="button" tabindex="0">
-                        <h5>✅ Completed Tasks</h5>
+                        <h5 id="kpi-completed-label">✅ Completed Tasks</h5>
                         <h2 id="completed-tasks">0</h2>
                     </div>
                 </div>
@@ -148,9 +171,9 @@ frappe.pages["task-management"].on_page_load = function (wrapper) {
                             <h4>⚠️ Tasks By Delay Range</h4>
                             <select id="delay-filter" class="form-control">
                                 <option value="All">All Ranges</option>
-                                <option value="0-5 Days">1–5 Days</option>
-                                <option value="5-10 Days">6–10 Days</option>
-                                <option value="10-15 Days">11–14 Days</option>
+                                <option value="1-5 Days">1–5 Days</option>
+                                <option value="6-10 Days">6–10 Days</option>
+                                <option value="11-14 Days">11–14 Days</option>
                                 <option value="15+ Days">15+ Days</option>
                             </select>
                         </div>
@@ -186,6 +209,64 @@ frappe.pages["task-management"].on_page_load = function (wrapper) {
                         <div id="priority-chart"></div>
                     </section>
                 </div>
+
+                <section class="dashboard-panel task-table-panel">
+                    <div class="panel-header">
+                        <h4 id="task-table-title">📑 Tasks</h4>
+                        <span id="table-range" class="table-range">Showing 0–0 of 0</span>
+                    </div>
+
+                    <div class="task-tabs" id="task-tabs" role="tablist">
+                        <button class="task-tab active" data-tab="my"
+                                type="button" role="tab">
+                            ✅ My Tasks
+                        </button>
+                        <button class="task-tab" data-tab="team" id="team-tab"
+                                type="button" role="tab" hidden>
+                            👥 Team Tasks
+                        </button>
+                        <button class="task-tab" data-tab="all" id="all-tab"
+                                type="button" role="tab" hidden>
+                            📋 All Tasks
+                        </button>
+                    </div>
+
+                    <div class="table-scroll">
+                        <table class="task-table">
+                            <thead>
+                                <tr>
+                                    <th>Task</th>
+                                    <th>Status</th>
+                                    <th>Priority</th>
+                                    <th>Action</th>
+                                    <th>Delayed</th>
+                                    <th>End Date</th>
+                                    <th>Project</th>
+                                    <th>Assigned To</th>
+                                </tr>
+                            </thead>
+                            <tbody id="task-table-body">
+                                <tr>
+                                    <td colspan="8" class="table-empty">
+                                        Loading…
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="table-pagination">
+                        <button class="btn btn-default btn-xs" id="table-prev"
+                                type="button">
+                            ← Prev
+                        </button>
+                        <span id="table-page-info">Page 1</span>
+                        <button class="btn btn-default btn-xs" id="table-next"
+                                type="button">
+                            Next →
+                        </button>
+                    </div>
+                </section>
             </main>
         </div>
         `);
@@ -200,8 +281,6 @@ frappe.pages["task-management"].on_page_load = function (wrapper) {
     });
 
 
-
-    
     // Show / hide all dashboard filters
     $main.on("click", "#toggle-dashboard-filters", function () {
         const $panel = $("#dashboard-filter-panel");
@@ -225,6 +304,8 @@ frappe.pages["task-management"].on_page_load = function (wrapper) {
         $("#filter-status").val("");
         $("#filter-priority").val("");
 
+        table_state.offset = 0;
+
         refresh_dashboard();
         update_active_filter_count();
 
@@ -239,33 +320,19 @@ frappe.pages["task-management"].on_page_load = function (wrapper) {
         frappe.new_doc("Task");
     });
 
-    
-    // MY TASKS
+
+    // MY TASKS — in-page table tab
     $main.on("click", "#my-task-link", function () {
-        frappe.route_options = {
-            assigned_to: frappe.session.user
-        };
-
-        frappe.set_route("List", "Task", "List");
-
-        setTimeout(() => {
-            const lv = window.cur_list;
-
-            if (lv && lv.filter_area) {
-                lv.filter_area.clear();
-                lv.filter_area.add([
-                    ["Task", "status", "not in", ["Completed", "Cancelled"]],
-                    ["Task", "_assign", "like", "%" + frappe.session.user + "%"]
-                ]);
-            }
-        }, 800);
+        switch_task_tab("my");
     });
 
-    // ALL TASKS
-   
-    $main.on("click", "#all-task-link", function () {
+    // TEAM TASKS — in-page table tab
+    $main.on("click", "#team-task-link", function () {
+        switch_task_tab("team");
+    });
 
-        // Extra client-side role check
+    // ALL TASKS — role-gated in-page table tab
+    $main.on("click", "#all-task-link", function () {
         if (!can_view_all_tasks()) {
             frappe.msgprint(
                 "You are not permitted to view All Tasks."
@@ -273,33 +340,9 @@ frappe.pages["task-management"].on_page_load = function (wrapper) {
             return;
         }
 
-        frappe.route_options = null;
-        frappe.set_route("List", "Task", "List");
-
-        setTimeout(() => {
-            const lv = window.cur_list;
-
-            if (lv && lv.filter_area) {
-                lv.filter_area.clear();
-            }
-        }, 800);
+        switch_task_tab("all");
     });
 
-
-    // My Tasks: open a fresh list with only the current user's tasks
-    // $main.on("click", "#my-task-link", function () {
-    //     frappe.route_options = null;
-
-    //     window.location.href =
-    //         "/desk/task?assigned_to=" +
-    //         encodeURIComponent(frappe.session.user);
-    // });
-
-    // // All Tasks: open a fresh, unfiltered Task List
-    // $main.on("click", "#all-task-link", function () {
-    //     frappe.route_options = null;
-    //     window.location.href = "/desk/task";
-    // });
 
     $main.on("click", "#dashboard-link", function () {
         frappe.set_route("task-management");
@@ -309,7 +352,7 @@ frappe.pages["task-management"].on_page_load = function (wrapper) {
         frappe.set_route("List", "Project");
     });
 
-    // Settings: retain your existing destination for now
+    // Settings: retain existing destination
     $main.on("click", "#settings-link", function () {
         frappe.route_options = null;
         window.location.href = "/desk/task";
@@ -328,25 +371,17 @@ frappe.pages["task-management"].on_page_load = function (wrapper) {
         load_upcoming_list(days);
     });
 
-    
+
     // Refresh dashboard whenever a filter changes
     $main.on(
         "change",
         "#filter-project, #filter-employee, #filter-status, #filter-priority",
         function () {
+            table_state.offset = 0;
             refresh_dashboard();
             update_active_filter_count();
         }
     );
-
-    // $main.on(
-    //     "change",
-    //     "#filter-project, #filter-employee, #filter-status, #filter-priority",
-    //     function () {
-    //         refresh_dashboard();
-
-    //     }
-    // );
 
 
     $main.on("click", ".task-link, .upcoming-task-link", function () {
@@ -356,8 +391,8 @@ frappe.pages["task-management"].on_page_load = function (wrapper) {
         }
     });
 
-  
-  // KPI cards
+
+    // KPI cards → filter the in-page task table (no route change)
     $main.on("click", ".kpi-card", function () {
         open_tasks_by_kpi($(this).attr("data-kpi"));
     });
@@ -369,25 +404,44 @@ frappe.pages["task-management"].on_page_load = function (wrapper) {
         }
     });
 
+
+    // Task table: tabs
+    $main.on("click", "#task-tabs .task-tab", function () {
+        if ($(this).prop("hidden")) {
+            return;
+        }
+
+        switch_task_tab($(this).attr("data-tab"));
+    });
+
+    // Task table: pagination
+    $main.on("click", "#table-prev", function () {
+        table_state.offset = Math.max(
+            0,
+            table_state.offset - table_state.limit
+        );
+        load_task_table();
+    });
+
+    $main.on("click", "#table-next", function () {
+        table_state.offset += table_state.limit;
+        load_task_table();
+    });
+
+    // Task table: row → open form
+    $main.on("click", ".task-row", function () {
+        const task_name = $(this).attr("data-task");
+        if (task_name) {
+            frappe.set_route("Form", "Task", task_name);
+        }
+    });
+
     load_dashboard_filter_options();
-    refresh_dashboard();
+
+    load_dashboard_context(function () {
+        refresh_dashboard();
+    });
 };
-
-
-function refresh_dashboard() {
-    load_dashboard_data();
-    const filters = get_dashboard_filters();
-
-    load_delay_chart($("#delay-filter").val() || "All");
-    load_deadline_chart($("#deadline-filter").val() || 7);
-    load_delay_list($("#delay-filter").val() || "All");
-    load_upcoming_list($("#deadline-filter").val() || 7);
-    load_priority_chart();
-}
-
-
-const TASK_API =
-    "task_custom_app.task_custom_app.page.task_management.task_management";
 
 
 function call_task_api(method, args, callback) {
@@ -406,6 +460,131 @@ function call_task_api(method, args, callback) {
 }
 
 
+// =========================================================
+// ROLE CONTEXT
+// =========================================================
+
+
+function load_dashboard_context(done) {
+    call_task_api("get_dashboard_context", {}, function (ctx) {
+        if (ctx) {
+            dashboard_context = ctx;
+        }
+
+        apply_dashboard_context();
+        done && done();
+    });
+}
+
+
+function apply_dashboard_context() {
+    const label = dashboard_context.scope_label || "My";
+
+    $("#kpi-total-label").text(`📋 ${label} Tasks`);
+    $("#kpi-overdue-label").text(`⏰ ${label} Overdue`);
+    $("#kpi-critical-label").text(`🚨 ${label} Critical`);
+    $("#kpi-completed-label").text(`✅ ${label} Completed`);
+
+    if (dashboard_context.can_view_team) {
+        $("#team-tab").prop("hidden", false);
+        $("#team-task-link").prop("hidden", false);
+    }
+
+    if (dashboard_context.can_view_all) {
+        $("#all-tab").prop("hidden", false);
+    }
+
+    // Default tab by role
+    if (dashboard_context.can_view_all) {
+        table_state.tab = "all";
+    } else if (dashboard_context.can_view_team) {
+        table_state.tab = "team";
+    } else {
+        table_state.tab = "my";
+    }
+
+    table_state.offset = 0;
+    sync_tab_ui();
+}
+
+
+function switch_task_tab(tab) {
+    if (tab === "all" && !can_view_all_tasks()) {
+        frappe.msgprint("You are not permitted to view All Tasks.");
+        return;
+    }
+
+    if (tab === "team" && !dashboard_context.can_view_team) {
+        frappe.msgprint("Team tasks are not available for your role.");
+        return;
+    }
+
+    table_state.tab = tab;
+    table_state.kpi_view = "";
+    table_state.offset = 0;
+
+    sync_tab_ui();
+    update_task_table_title();
+    load_task_table();
+    scroll_to_task_table();
+}
+
+
+function sync_tab_ui() {
+    $("#task-tabs .task-tab").removeClass("active");
+    $(`#task-tabs .task-tab[data-tab="${table_state.tab}"]`)
+        .addClass("active");
+}
+
+
+function update_task_table_title() {
+    const view = table_state.kpi_view;
+    const tab = table_state.tab;
+
+    let title = "📑 Tasks";
+
+    if (view === "overdue") {
+        title = "📑 Overdue Tasks";
+    } else if (view === "critical") {
+        title = "📑 Critical Tasks";
+    } else if (view === "completed") {
+        title = "📑 Completed Tasks";
+    } else if (tab === "my") {
+        title = "📑 My Tasks";
+    } else if (tab === "team") {
+        title = "📑 Team Tasks";
+    } else if (tab === "all") {
+        title = "📑 All Tasks";
+    }
+
+    $("#task-table-title").text(title);
+}
+
+
+function scroll_to_task_table() {
+    const el = document.querySelector(".task-table-panel");
+    if (el && el.scrollIntoView) {
+        el.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+}
+
+
+// =========================================================
+// DASHBOARD REFRESH
+// =========================================================
+
+
+function refresh_dashboard() {
+    load_dashboard_data();
+
+    load_delay_chart($("#delay-filter").val() || "All");
+    load_deadline_chart($("#deadline-filter").val() || 7);
+    load_delay_list($("#delay-filter").val() || "All");
+    load_upcoming_list($("#deadline-filter").val() || 7);
+    load_priority_chart();
+    load_task_table();
+}
+
 
 function load_dashboard_data() {
     call_task_api(
@@ -414,27 +593,34 @@ function load_dashboard_data() {
         function (data) {
             if (!data) return;
 
-        $("#total-tasks").text(data.total_tasks || 0);
-        $("#overdue-tasks").text(data.overdue_tasks || 0);
-        $("#critical-tasks").text(data.critical_tasks || 0);
-        $("#completed-tasks").text(data.completed_tasks || 0);
-    });
+            $("#total-tasks").text(data.total_tasks || 0);
+            $("#overdue-tasks").text(data.overdue_tasks || 0);
+            $("#critical-tasks").text(data.critical_tasks || 0);
+            $("#completed-tasks").text(data.completed_tasks || 0);
+        }
+    );
 }
+
+
+// =========================================================
+// CHARTS
+// =========================================================
 
 
 function load_delay_chart(delay_range = "All") {
     call_task_api(
         "get_delay_chart_data",
-        { 
-        ...get_dashboard_filters(),
-        delay_range: delay_range },
+        {
+            ...get_dashboard_filters(),
+            delay_range: delay_range
+        },
         function (data) {
             if (!data) return;
 
             const labels = [
-                "0-5 Days",
-                "5-10 Days",
-                "10-15 Days",
+                "1-5 Days",
+                "6-10 Days",
+                "11-14 Days",
                 "15+ Days"
             ];
 
@@ -451,11 +637,11 @@ function load_delay_chart(delay_range = "All") {
                 type: "bar",
                 height: 280,
                 colors: [
-					"#9AD9A5", // Soft green — 0–5 Days
-					"#FFC857", // Warm amber — 5–10 Days
-					"#FF9559", // Soft orange — 10–15 Days
-					"#F47791"  // Soft coral pink — 15+ Days
-				],
+                    "#9AD9A5",
+                    "#FFC857",
+                    "#FF9559",
+                    "#F47791"
+                ],
                 barOptions: {
                     spaceRatio: 0.35
                 }
@@ -468,8 +654,10 @@ function load_delay_chart(delay_range = "All") {
 function load_deadline_chart(days = 7) {
     call_task_api(
         "get_deadline_chart_data",
-        { 
-            ...get_dashboard_filters(),days: Number(days) },
+        {
+            ...get_dashboard_filters(),
+            days: Number(days)
+        },
         function (tasks) {
             tasks = tasks || [];
 
@@ -498,11 +686,11 @@ function load_deadline_chart(days = 7) {
                 type: "bar",
                 height: 280,
                 colors: [
-					"#6366F1", // Indigo
-					"#14B8A6", // Teal
-					"#F59E0B", // Amber
-					"#F87171"  // Coral
-				],
+                    "#6366F1",
+                    "#14B8A6",
+                    "#F59E0B",
+                    "#F87171"
+                ],
                 barOptions: {
                     spaceRatio: 0.35
                 }
@@ -512,11 +700,105 @@ function load_deadline_chart(days = 7) {
 }
 
 
+function load_priority_chart() {
+    const labels = [
+        "Important-Urgent",
+        "Important-Not Urgent",
+        "Not Important-Urgent",
+        "Not Important-Not Urgent",
+        "Unassigned"
+    ];
+
+    const colors = [
+        "#ed4d4d",
+        "#58e6d8",
+        "#FF9559",
+        "#F47791",
+        "#94A3B8"
+    ];
+
+    call_task_api(
+        "get_priority_data",
+        get_dashboard_filters(),
+        function (rows) {
+            rows = rows || [];
+
+            const priority_map = {};
+            labels.forEach(label => {
+                priority_map[label] = 0;
+            });
+
+            rows.forEach(row => {
+                const priority = row.custom_task_priority;
+
+                if (Object.prototype.hasOwnProperty.call(priority_map, priority)) {
+                    priority_map[priority] += Number(row.count) || 0;
+                }
+            });
+
+            const values = labels.map(label => priority_map[label]);
+
+            $("#priority-chart").empty();
+            $("#priority-legend").remove();
+
+            const chartContainer = $("#priority-chart");
+
+            if (values.every(value => value === 0)) {
+                chartContainer.html(`
+                    <div style="text-align:center;padding:55px 10px;color:#64748b;">
+                        No priority data available
+                    </div>
+                `);
+                return;
+            }
+
+            new frappe.Chart("#priority-chart", {
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        name: "Tasks",
+                        values: values
+                    }]
+                },
+                type: "donut",
+                height: 250,
+                colors: colors,
+                showLegend: false
+            });
+
+            const legendHtml = labels.map((label, index) => `
+                <div class="priority-legend-item">
+                    <span class="priority-legend-dot"
+                          style="background:${colors[index]}"></span>
+                    <span class="priority-legend-label">${label}</span>
+                    <span class="priority-legend-count">
+                        ${values[index]}
+                    </span>
+                </div>
+            `).join("");
+
+            chartContainer.after(`
+                <div id="priority-legend" class="priority-legend">
+                    ${legendHtml}
+                </div>
+            `);
+        }
+    );
+}
+
+
+// =========================================================
+// TASK LISTS
+// =========================================================
+
+
 function load_delay_list(delay_range = "All") {
     call_task_api(
         "get_delayed_tasks",
-        {   ...get_dashboard_filters(),
-            delay_range: delay_range },
+        {
+            ...get_dashboard_filters(),
+            delay_range: delay_range
+        },
         function (tasks) {
             tasks = tasks || [];
 
@@ -545,8 +827,10 @@ function load_delay_list(delay_range = "All") {
 function load_upcoming_list(days = 7) {
     call_task_api(
         "get_upcoming_tasks",
-        { ...get_dashboard_filters(),
-             days: Number(days) },
+        {
+            ...get_dashboard_filters(),
+            days: Number(days)
+        },
         function (tasks) {
             tasks = tasks || [];
 
@@ -571,138 +855,137 @@ function load_upcoming_list(days = 7) {
     );
 }
 
-function load_priority_chart() {
-    const labels = [
-        "Important-Urgent",
-        "Important-Not Urgent",
-        "Not Important-Urgent",
-        "Not Important-Not Urgent"
-    ];
 
-    const colors = [
-        "#ed4d4d", // Soft green — 0–5 Days
-		"#58e6d8", // Warm amber — 5–10 Days
-		"#FF9559", // 
-		"#F47791"  
-    ];
+// =========================================================
+// KPI → IN-PAGE TASK TABLE
+// =========================================================
 
-    call_task_api(
-    "get_priority_data",
-    get_dashboard_filters(),
-    function (rows) {
-        rows = rows || [];
 
-        const priority_map = {};
-        labels.forEach(label => {
-            priority_map[label] = 0;
-        });
+function open_tasks_by_kpi(kpiType) {
+    table_state.kpi_view = (kpiType === "total") ? "" : (kpiType || "");
+    table_state.offset = 0;
 
-        rows.forEach(row => {
-            const priority = row.custom_task_priority;
+    update_task_table_title();
+    load_task_table();
+    scroll_to_task_table();
+}
 
-            if (Object.prototype.hasOwnProperty.call(priority_map, priority)) {
-                priority_map[priority] += Number(row.count) || 0;
-            }
-        });
 
-        const values = labels.map(label => priority_map[label]);
+// =========================================================
+// TASK TABLE
+// =========================================================
 
-        $("#priority-chart").empty();
-        $("#priority-legend").remove();
 
-        const chartContainer = $("#priority-chart");
+function load_task_table() {
+    const args = {
+        ...get_dashboard_filters(),
+        tab: table_state.tab,
+        kpi_view: table_state.kpi_view,
+        limit: table_state.limit,
+        offset: table_state.offset
+    };
 
-        if (values.every(value => value === 0)) {
-            chartContainer.html(`
-                <div style="text-align:center;padding:55px 10px;color:#64748b;">
-                    No priority data available
-                </div>
+    call_task_api("get_task_list_data", args, function (data) {
+        if (!data) return;
+
+        const rows = data.rows || [];
+        const total = Number(data.total) || 0;
+        const limit = Number(data.limit) || table_state.limit;
+        const offset = Number(data.offset) || 0;
+
+        table_state.limit = limit;
+        table_state.offset = offset;
+
+        const start = total === 0 ? 0 : offset + 1;
+        const end = Math.min(offset + limit, total);
+        $("#table-range").text(`Showing ${start}–${end} of ${total}`);
+
+        const page = Math.floor(offset / limit) + 1;
+        const pages = Math.max(1, Math.ceil(total / limit));
+        $("#table-page-info").text(`Page ${page} of ${pages}`);
+        $("#table-prev").prop("disabled", offset <= 0);
+        $("#table-next").prop("disabled", offset + limit >= total);
+
+        if (!rows.length) {
+            $("#task-table-body").html(`
+                <tr>
+                    <td colspan="8" class="table-empty">
+                        No tasks found.
+                    </td>
+                </tr>
             `);
             return;
         }
 
-        new frappe.Chart("#priority-chart", {
-            data: {
-                labels: labels,
-                datasets: [{
-                    name: "Tasks",
-                    values: values
-                }]
-            },
-            type: "donut",
-            height: 250,
-            colors: colors,
-            showLegend: false
-        });
+        const html = rows.map(task => {
+            const delayed = Number(task.delayed_by) || 0;
 
-        const legendHtml = labels.map((label, index) => `
-            <div class="priority-legend-item">
-                <span class="priority-legend-dot"
-                      style="background:${colors[index]}"></span>
-                <span class="priority-legend-label">${label}</span>
-                <span class="priority-legend-count">
-                    ${values[index]}
-                </span>
-            </div>
-        `).join("");
+            return `
+                <tr class="task-row"
+                    data-task="${frappe.utils.escape_html(task.name)}">
+                    <td>
+                        <strong>${frappe.utils.escape_html(task.task_name || task.name)}</strong>
+                        <br>
+                        <small>${frappe.utils.escape_html(task.name)}</small>
+                    </td>
+                    <td>
+                        <span class="table-badge badge-status">
+                            ${frappe.utils.escape_html(task.status || "—")}
+                        </span>
+                    </td>
+                    <td>
+                        ${frappe.utils.escape_html(
+                            task.custom_task_priority || task.priority || "—"
+                        )}
+                    </td>
+                    <td>
+                        ${frappe.utils.escape_html(task.custom_action || "—")}
+                    </td>
+                    <td class="${delayed > 0 ? "text-danger" : ""}">
+                        ${delayed} d
+                    </td>
+                    <td>
+                        ${frappe.utils.escape_html(task.exp_end_date || "—")}
+                    </td>
+                    <td>
+                        ${frappe.utils.escape_html(task.project || "—")}
+                    </td>
+                    <td>
+                        ${frappe.utils.escape_html(parse_assign(task._assign))}
+                    </td>
+                </tr>
+            `;
+        }).join("");
 
-        chartContainer.after(`
-            <div id="priority-legend" class="priority-legend">
-                ${legendHtml}
-            </div>
-        `);
+        $("#task-table-body").html(html);
     });
 }
 
 
+function parse_assign(raw) {
+    try {
+        const list = JSON.parse(raw || "[]");
 
-function open_tasks_by_kpi(kpiType) {
-    if (kpiType === "total") {
-        // Clear route filters
-        frappe.route_options = null;
-
-        // Navigate to the Task List
-        frappe.set_route("List", "Task", "List");
-
-        // Clear any filters retained by the Task List
-        setTimeout(() => {
-            const lv = window.cur_list;
-
-            if (lv && lv.filter_area) {
-                lv.filter_area.clear();
-            }
-        }, 800);
-
-        return;
+        if (Array.isArray(list) && list.length) {
+            return list
+                .map(user_id => String(user_id).split("@")[0])
+                .join(", ");
+        }
+    } catch (e) {
+        // fall through
     }
 
-    let filters = {};
-
-    if (kpiType === "overdue") {
-        filters = {
-            status: ["not in", ["Completed", "Cancelled"]],
-            custom_delayed_by: [">", 0]
-        };
-    } else if (kpiType === "critical") {
-        filters = {
-            status: ["not in", ["Completed", "Cancelled"]],
-            custom_delayed_by: [">=", 15]
-        };
-    } else if (kpiType === "completed") {
-        filters = {
-            status: "Completed"
-        };
-    }
-
-    frappe.route_options = filters;
-    frappe.set_route("List", "Task", "List");
+    return "—";
 }
 
 
+// =========================================================
+// FILTER OPTIONS
+// =========================================================
 
 
 function load_dashboard_filter_options() {
-        // Project filter: show project title, retain project ID as value
+    // Project filter: show project title, retain project ID as value
     call_task_api(
         "get_project_filter_options",
         {},
@@ -829,8 +1112,6 @@ function load_dashboard_filter_options() {
 }
 
 
-
-
 function get_dashboard_filters() {
     return {
         project: $("#filter-project").val() || "",
@@ -839,7 +1120,6 @@ function get_dashboard_filters() {
         priority: $("#filter-priority").val() || ""
     };
 }
-
 
 
 function update_active_filter_count() {
@@ -855,7 +1135,3 @@ function update_active_filter_count() {
     $badge.text(count);
     $badge.prop("hidden", count === 0);
 }
-
-
-
-

@@ -8,7 +8,8 @@ app_license = "mit"
 after_migrate = [
     "task_custom_app.patches.add_two_fields_External_customer.execute",
     "task_custom_app.patches.add_delayed_by_field.execute",
-    "task_custom_app.patches.add_days_field.execute"
+    "task_custom_app.patches.add_days_field.execute",
+    "task_custom_app.patches.add_fields_on_task.execute"
 ]
 
 
