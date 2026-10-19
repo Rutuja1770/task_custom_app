@@ -11,11 +11,13 @@ after_migrate = [
     "task_custom_app.patches.add_days_field.execute",
     "task_custom_app.patches.add_fields_on_task.execute",
     "task_custom_app.patches.add_project_lead_field.execute",
+    "task_custom_app.patches.add_hr_field_on_project.execute",
 ]
 
 
 
 
 doctype_js = {
-    "Task": "public/js/task_custom.js"
+    "Task": "public/js/task_custom.js",
+    "Project": "public/js/project_custom.js"
 }

@@ -62,9 +62,10 @@ that KPI.
 | Piece of data | Where it lives | Used for |
 |---|---|---|
 | `Project.custom_project_lead` | Project form → "Task Management" section | Who leads a project (Nilesh → Renu, Parveen → BHS) |
+| `Project.custom_hr_user` | Project form → "Task Management" section → **HR** | Who is the HR for a project — HR Manager / HR User see that project's tasks. Dropdown lists **only users with HR Manager / HR User roles** |
 | `Employee.reports_to` | Employee form | Hierarchy chain (Renu → Nilesh → Vikas) — used by Vikas's scope and employee filter |
 | `Task._assign` | Task's "Assigned To" | My Tasks tab, own-assignment fallback |
-| `Task.project` | Task form | Project-based scope for L1 and L2 |
+| `Task.project` | Task form | Project-based scope for L1, L2 and HR |
 
 ---
 
@@ -75,8 +76,9 @@ Roles are checked **server-side** on every API call. Assign them under
 
 | Role | Give to | Sees scope |
 |---|---|---|
-| **Main Manager** | Vikas (top manager) | Projects led by his reporting-tree members + own assigned tasks |
+| **Main Manager** | Vikas (top manager) | Projects led by/HR-assigned to his reporting-tree members + own assigned tasks |
 | **Project Manager** | Nilesh, Parveen (leads) | Projects where they are the Project Lead + own assigned tasks |
+| **HR Manager** / **HR User** | HR person | Projects where she is the assigned **HR** field + own assigned tasks (same behavior as Project Manager) |
 | **Task Manager** | *(optional admin)* | Everything, no restrictions — system/admin role, not part of the 3-level hierarchy |
 | *(no special role)* | Regular employees | Own assigned tasks only |
 
@@ -106,7 +108,21 @@ Roles are checked **server-side** on every API call. Assign them under
 | My Projects section | Their lead projects as clickable cards with counts |
 | Fail-safe | No projects assigned yet → they only see tasks assigned directly to them (never unrestricted) |
 
-### 3.3 Employees (Level 3)
+### 3.3 HR — HR Manager / HR User (same pattern as Level 2)
+
+| Aspect | Behaviour |
+|---|---|
+| KPI titles | "Project Total", "Project Overdue", … |
+| Task scope | `(task belongs to a project where she is the assigned HR) OR (task assigned to her)` |
+| Assignment | Project form → Task Management → **HR** field (Project Lead is not used for HR) |
+| Tabs | My, Team (default: Team). **No All tab** |
+| Project filter dropdown | Only projects where she is the assigned HR |
+| Employee filter dropdown | Employees who have tasks in her projects + self |
+| My Projects section | Her HR projects as clickable cards with counts |
+| Fail-safe | No project marked yet → she only sees tasks assigned directly to her |
+| Both roles identical | `HR Manager` and `HR User` behave exactly the same |
+
+### 3.4 Employees (Level 3)
 
 | Aspect | Behaviour |
 |---|---|
@@ -126,8 +142,9 @@ Roles are checked **server-side** on every API call. Assign them under
 
 | Who | Sees |
 |---|---|
-| Vikas (Main Manager) | Projects led by his reporting tree — subtitle: "Projects handled by your team" |
+| Vikas (Main Manager) | Projects led by / HR-assigned to his reporting tree — subtitle: "Projects handled by your team" |
 | Nilesh / Parveen (PM) | Their lead projects — subtitle: "Projects assigned to you as lead" |
+| HR (HR Manager / HR User) | Their HR-marked projects |
 | Employees | Section hidden |
 
 Clicking a card applies that Project filter to the whole dashboard and scrolls
@@ -150,23 +167,23 @@ the table's total always equals the KPI number.
 
 Filters only **narrow** your scope — they can never expand it:
 
-| Filter | Vikas (Main Manager) | Nilesh/Parveen (PM) | Employees |
-|---|---|---|---|
-| Project | Projects led by his tree | Own lead projects | Projects with own tasks |
-| Employee | His reporting tree | People with tasks in their projects + self | Self only |
-| Status | All statuses | All statuses | All statuses |
-| Priority | All priorities | All priorities | All priorities |
+| Filter | Vikas (Main Manager) | Nilesh/Parveen (PM) | HR (HR Manager/User) | Employees |
+|---|---|---|---|---|
+| Project | Projects led by/HR-assigned to his tree | Own lead projects | Own HR-marked projects | Projects with own tasks |
+| Employee | His reporting tree | People with tasks in their projects + self | People with tasks in her projects + self | Self only |
+| Status | All statuses | All statuses | All statuses | All statuses |
+| Priority | All priorities | All priorities | All priorities | All priorities |
 
 Selecting an Employee **outside** your scope returns zero rows (server-side
 `1 = 0` guard) — it is not an error, just empty.
 
 ### 4.4 Task table tabs
 
-| Tab | Vikas | Nilesh/Parveen | Employees |
-|---|---|---|---|
-| My Tasks | Tasks assigned to Vikas | Tasks assigned to them | Tasks assigned to them |
-| Team Tasks | All tasks in hierarchy projects | All tasks in their lead projects | Hidden |
-| All Tasks | All tasks in hierarchy projects | Hidden (blocked server-side) | Hidden (blocked server-side) |
+| Tab | Vikas | Nilesh/Parveen | HR | Employees |
+|---|---|---|---|---|
+| My Tasks | Tasks assigned to Vikas | Tasks assigned to them | Tasks assigned to her | Tasks assigned to them |
+| Team Tasks | All tasks in hierarchy projects | All tasks in their lead projects | All tasks in her HR projects | Hidden |
+| All Tasks | All tasks in hierarchy projects | Hidden (blocked server-side) | Hidden (blocked server-side) | Hidden (blocked server-side) |
 
 ### 4.5 Charts & lists
 
@@ -185,7 +202,7 @@ task is visible in the table, it's counted in the charts.
 3. **`tab=all`** raises `PermissionError` for anyone who is not Main/Task
    Manager.
 4. **Fail-safe defaults:**
-   - PM with no lead projects → only own assigned tasks
+   - PM/HR with no assigned projects → only own assigned tasks
    - Main Manager with no Employee record → only own assigned tasks
    - No Employee record at all → only own assigned tasks
 5. **SQL safety:** all values go through named parameters; user IDs are
@@ -199,7 +216,7 @@ task is visible in the table, it's counted in the charts.
 Run once after deploying:
 
 ```bash
-bench --site <your-site> migrate    # creates Project.custom_project_lead
+bench --site <your-site> migrate    # creates Project Lead + HR fields
 bench build                         # rebuilds dashboard assets
 ```
 
@@ -209,17 +226,23 @@ Then in the UI:
 |---|---|---|
 | 1 | Give Vikas the **Main Manager** role | User → Vikas → Roles |
 | 2 | Give Nilesh & Parveen the **Project Manager** role | User → Roles |
-| 3 | Employees: **no special role** needed | — |
-| 4 | Set **Project Lead** on every project (Renu → Nilesh, BHS → Parveen) | Project form → Task Management → Project Lead |
-| 5 | Create Vikas's **Employee** record; set `user_id` = his login | Employee form |
-| 6 | Set **Reports To** chain: Renu → Nilesh, Nilesh → Vikas (or everyone → Vikas) | Employee form → Reports To |
+| 3 | Give HR her existing **HR Manager** or **HR User** role (no new role needed) | User → Roles |
+| 4 | Employees: **no special role** needed | — |
+| 5 | Set **Project Lead** on every project (Renu → Nilesh, BHS → Parveen) | Project form → Task Management → Project Lead |
+| 6 | Set **HR** on projects HR should see (dropdown only lists HR-role users) | Project form → Task Management → HR |
+| 7 | Create Vikas's **Employee** record; set `user_id` = his login | Employee form |
+| 8 | Set **Reports To** chain: Renu → Nilesh, Nilesh → Vikas (or everyone → Vikas) | Employee form → Reports To |
 
 ### Setup rules (important)
 
-- **Every project must have a Project Lead.** A project with no lead is
-  invisible to everyone through project scope.
+- **Every project needs a Project Lead or an HR** — a project with neither
+  is invisible to everyone through project scope.
+- **Project Lead ≠ HR.** Lead drives Nilesh/Parveen (+ Vikas's hierarchy
+  view); the HR field drives the HR Manager/HR User view. A project can
+  have both.
 - **The reporting chain must reach Vikas.** If Renu's `reports_to` is empty,
-  she won't appear in Vikas's employee filter or project scope.
+  she won't appear in Vikas's employee filter or project scope — and an
+  HR-marked project won't show in his dashboard either.
 - **Task Manager role = full access.** Don't give it to regular staff; it is
   an admin bypass outside the hierarchy.
 
@@ -229,16 +252,16 @@ Then in the UI:
 
 Test as each user after `bench build` + hard reload:
 
-| Check | Vikas | Nilesh/Parveen | Employee |
-|---|---|---|---|
-| My Projects cards | Team's projects (Renu + BHS) | Own lead projects only | Hidden |
-| KPI titles | "All …" | "Project …" | "My …" |
-| Default tab | All | Team | My |
-| Project dropdown | Tree-led projects | Own lead projects | Own projects |
-| Employee dropdown | Reporting tree | Project workers + self | Self |
-| Click Total KPI | Table total = KPI | = | = |
-| Open a task outside scope | Impossible | Impossible (e.g. Nilesh never sees BHS tasks) | Impossible |
-| Row click | Opens Task form | = | = |
+| Check | Vikas | Nilesh/Parveen | HR | Employee |
+|---|---|---|---|---|
+| My Projects cards | Team's projects (Renu + BHS) | Own lead projects only | Own HR-marked projects only | Hidden |
+| KPI titles | "All …" | "Project …" | "Project …" | "My …" |
+| Default tab | All | Team | Team | My |
+| Project dropdown | Tree-led/HR projects | Own lead projects | Own HR-marked projects | Own projects |
+| Employee dropdown | Reporting tree | Project workers + self | Project workers + self | Self |
+| Click Total KPI | Table total = KPI | = | = | = |
+| Open a task outside scope | Impossible | Impossible (e.g. Nilesh never sees BHS tasks) | Impossible (HR sees only her marked projects) | Impossible |
+| Row click | Opens Task form | = | = | = |
 
 **Assertion:** for every role and filter combination, each KPI number must
 equal the table total shown after clicking that KPI.
@@ -256,8 +279,17 @@ Only if the task is *assigned directly to Parveen* (own-assignment rule).
 Project-wise, Renu is out of his scope.
 
 **Q — New project created, no lead yet. Who sees it?**
-Nobody via project scope. Assign a lead → that lead, their top manager, and
-anyone personally assigned to its tasks will see it.
+Nobody via project scope. Assign a Project Lead or HR → that person, their
+top manager (for leads), and anyone personally assigned to its tasks will
+see it.
+
+**Q — Does HR need the Project Lead field set to her?**
+No. HR uses the separate **HR** field on the Project. Project Lead stays
+with Nilesh/Parveen — a project can have both.
+
+**Q — HR Manager and HR User — is there any difference?**
+No — both roles behave identically (project-scope). Pick whichever matches
+your user setup; no new role is created.
 
 **Q — Can Vikas force his way into "everything"?**
 Not with Main Manager. The Task Manager role is the unrestricted admin role
@@ -277,4 +309,5 @@ assignment), or they have no User ID on their Employee record.
 | `task_custom_app/task_custom_app/page/task_management/task_management.js` | Dashboard UI, My Projects cards, tabs |
 | `task_custom_app/task_custom_app/page/task_management/task_management.css` | Theme incl. project cards |
 | `task_custom_app/patches/add_project_lead_field.py` | Creates `Project.custom_project_lead` |
+| `task_custom_app/patches/add_hr_field_on_project.py` | Creates `Project.custom_hr_user` (HR assignment) |
 | `TASK_MANAGEMENT.md` | Full technical reference (SQL, endpoints, charts) |

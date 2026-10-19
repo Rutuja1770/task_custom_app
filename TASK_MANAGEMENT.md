@@ -20,7 +20,7 @@ so **KPI values always equal the in-page task table totals**.
 - 4 KPI cards: Total, Overdue, Critical, Completed
 - Charts: Delay range (bar), Upcoming deadlines (bar), Priority (donut + legend)
 - Lists: Delayed tasks, Upcoming deadlines
-- **My Projects** section (Main Manager + Project Manager): project cards
+- **My Projects** section (Main Manager + Project Manager + HR): project cards
   with task counts; click a card to filter the dashboard by that project
 - **In-dashboard task table** with tabs (My / Team / All), server-side
   pagination, and KPI drill-down (no route change)
@@ -35,7 +35,8 @@ so **KPI values always equal the in-page task table totals**.
 | `.../page/task_management/task_management.py` | Whitelisted APIs, role scope, SQL |
 | `.../page/task_management/task_management.css` | Theme, layout, table, tabs, responsive |
 | `task_custom_app/public/js/task_custom.js` | Task form script (feeds custom fields) |
-| `task_custom_app/patches/*.py` | Creates custom Task fields + `Project.custom_project_lead` |
+| `task_custom_app/public/js/project_custom.js` | Project form script (HR dropdown query) |
+| `task_custom_app/patches/*.py` | Creates custom Task fields + `Project.custom_project_lead` + `Project.custom_hr_user` |
 | `task_custom_app/hooks.py` | `after_migrate` patches + Task doctype JS |
 
 ---
@@ -47,8 +48,9 @@ Three-level hierarchy (all users report to the top manager via
 
 | Level | Typical user | Role | Sees |
 |---|---|---|---|
-| 1 | Top manager (e.g. Vikas) | Main Manager | Projects led by people in their reporting tree (e.g. Nilesh's + Parveen's projects) + tasks assigned to them |
+| 1 | Top manager (e.g. Vikas) | Main Manager | Projects led by/HR-assigned to people in their reporting tree + tasks assigned to them |
 | 2 | Leads (e.g. Parveen, Nilesh) | Project Manager | Projects they lead + all tasks under them |
+| 2b | HR person | HR Manager / HR User | Projects where they are the assigned HR + all tasks under them |
 | 3 | Team members | *(no special role)* | Only tasks assigned to them |
 
 Scope is computed server-side in `get_dashboard_conditions()`
@@ -57,25 +59,35 @@ filter options, and the task table.
 
 | Role | `scope_label` | KPI titles | Default tab | Tabs visible | Dashboard scope | Project filter | Employee filter |
 |---|---|---|---|---|---|---|---|
-| **Main Manager** | `All` | "All …" | All | My, Team, All | Projects led by reporting-tree members **+** tasks assigned directly to user | Projects led by reporting-tree members | Reporting tree (direct + indirect reports) |
+| **Main Manager** | `All` | "All …" | All | My, Team, All | Projects led by/HR-assigned to reporting-tree members **+** tasks assigned directly to user | Projects led by/HR-assigned to reporting-tree members | Reporting tree (direct + indirect reports) |
 | **Task Manager** | `All` | "All …" | All | My, Team, All | All tasks (system/admin role) | All projects | All active employees |
 | **Project Manager** | `Project` | "Project …" | Team | My, Team | Projects where user is `custom_project_lead` (all tasks under them) **+** tasks assigned directly to user | Own assigned projects only | Employees with tasks in own projects + self |
+| **HR Manager / HR User** | `Project` | "Project …" | Team | My, Team | Projects where user is `custom_hr_user` (all tasks under them) **+** tasks assigned directly to user — **same behavior as Project Manager** | Own HR-assigned projects only | Employees with tasks in own projects + self |
 | **Employee / Task User** | `My` | "My …" | My | My only | Own assigned tasks | Projects with own tasks | Self only |
 | No Employee record | `My` | "My …" | My | My | Fail-closed → `[user]` | Own tasks only | — |
 
-Project assignment: one lead per project via `Project.custom_project_lead`
-(Link → User).
+Project scope roles share one constant — `PROJECT_SCOPE_ROLES =
+{"Project Manager", "HR Manager", "HR User"}` (existing roles only; no new
+roles are created).
+
+Project assignment:
+
+- **Leads:** one Project Lead per project via `Project.custom_project_lead`
+  (Link → User).
+- **HR:** one HR per project via `Project.custom_hr_user` (Link → User) —
+  independent of Project Lead; a project can have both.
+- **Top manager:** sees the union of both, filtered to their reporting tree.
 
 Setup requirements for the hierarchy to work:
 
-1. **Every project must have a Project Lead** — a project with no lead is
-   visible to no one via project scope (only to whoever has tasks assigned
-   there personally).
+1. **Every project must have a Project Lead or an HR** — a project with
+   neither is visible to no one via project scope (only to whoever has
+   tasks assigned there personally).
 2. The **top manager needs an Employee record** (`user_id` set) and a valid
    `reports_to` chain (e.g. Renu → Nilesh → Vikas), otherwise their tree —
    and therefore their project scope — is empty.
-3. A Project Manager with no assigned projects sees only tasks assigned
-   directly to them (fail-safe, never unrestricted).
+3. A project-scope role (PM/HR) with no assigned projects sees only tasks
+   assigned directly to them (fail-safe, never unrestricted).
 
 UI context is delivered by `get_dashboard_context()`:
 
@@ -111,9 +123,9 @@ Client fallback `can_view_all_tasks()` also accepts `Main Manager`
 | Function | Role |
 |---|---|
 | `can_view_all()` | `True` for Main Manager \| Task Manager (tab permission only — Main Manager is still hierarchy-scoped) |
-| `is_project_manager()` | `True` for Project Manager |
-| `get_project_manager_projects(user)` | Project names where user is `custom_project_lead` |
-| `get_hierarchy_projects(user)` | Project names led by anyone in the user's reporting tree (Main Manager scope) |
+| `is_project_manager()` | `True` for any `PROJECT_SCOPE_ROLES` member (Project Manager, HR Manager, HR User) |
+| `get_project_manager_projects(user)` | Project names where user is `custom_project_lead` **or** `custom_hr_user` |
+| `get_hierarchy_projects(user)` | Project names led by/HR-assigned to anyone in the user's reporting tree (Main Manager scope) |
 | `get_project_team_users(projects)` | Users assigned to any non-cancelled task in the projects |
 | `get_task_dashboard_scope()` | `None` (unrestricted managers) or `[user]` (everyone else; PM scope is project-based) |
 | `get_reporting_employee_users(user)` | BFS over Active employees' `reports_to` tree (employee filter fallback) |
@@ -129,7 +141,7 @@ Always applied:
 2. Scope by role:
    - Main Manager: `(t.project IN (hierarchy projects) OR _assign contains user)`.
    - Task Manager: unrestricted.
-   - Project Manager: `(t.project IN (lead projects) OR _assign contains user)`.
+   - Project Manager / HR Manager / HR User: `(t.project IN (lead/HR projects) OR _assign contains user)`.
    - Employee: `_assign` contains user.
 
 Optional filters (all AND-ed, all narrow-only):
@@ -155,9 +167,10 @@ API prefix:
 | `get_upcoming_tasks(days)` | task rows + `days_remaining` | `days` clamped 1–365 |
 | `get_deadline_chart_data(days)` | alias of `get_upcoming_tasks` | |
 | `get_delay_chart_data(delay_range)` | 4 bucket counts | Buckets match SQL ranges |
-| `get_project_filter_options()` | `[{value, label}]` | Main Manager → projects led by reporting tree; Task Manager → all; PM → own lead projects; others → projects with in-scope tasks |
-| `get_employee_filter_options()` | `[{value, label}]` | Main Manager → reporting tree; Task Manager → all active; PM → employees with tasks in own projects + self; others → reporting tree |
-| `get_my_projects()` | `[{project, project_name, total_tasks, open_tasks, overdue_tasks}]` | Main Manager → hierarchy projects; Task Manager → all; PM → own lead projects; Employees → `[]` |
+| `get_project_filter_options()` | `[{value, label}]` | Main Manager → projects led by/HR-assigned to reporting tree; Task Manager → all; PM/HR → own lead/HR projects; others → projects with in-scope tasks |
+| `get_employee_filter_options()` | `[{value, label}]` | Main Manager → reporting tree; Task Manager → all active; PM/HR → employees with tasks in own projects + self; others → reporting tree |
+| `get_my_projects()` | `[{project, project_name, total_tasks, open_tasks, overdue_tasks}]` | Main Manager → hierarchy projects; Task Manager → all; PM/HR → own lead/HR projects; Employees → `[]` |
+| **`hr_user_query(...)`** | link-search rows | `Project.custom_hr_user` dropdown — only enabled users with `HR Manager` / `HR User` roles |
 | **`get_task_list_data(...)`** | `{rows, total, limit, offset}` | **KPI-consistent paginated table** — see §3.5 |
 
 ### 3.4 KPI definitions (identical to table overlays)
@@ -334,6 +347,7 @@ On `Project`:
 | Field | Type | Purpose |
 |---|---|---|
 | `custom_project_lead` | Link → `User` | Project Manager assignment — lead sees all tasks under the project |
+| `custom_hr_user` | Link → `User` | HR assignment — HR Manager / HR User see all tasks under the project; dropdown lists **only users with HR roles** (custom query `hr_user_query`) |
 
 Patches are idempotent; registered in both `hooks.py` and `patches.txt`.
 
@@ -343,6 +357,24 @@ Patches are idempotent; registered in both `hooks.py` and `patches.txt`.
 - External project → fills/shows `custom_customer`
 - Priority → sets `custom_action`
 - Dates → computes `custom_days` and `custom_delayed_by` (calendar days)
+- **Assignment timeline warning** (client-only, additive): when a user is
+  newly assigned, checks other tasks where that user is already assigned
+  and whose `exp_start_date..exp_end_date` **overlaps** this task's
+  timeline → shows an orange message with the already-assigned task's
+  subject. Never blocks the assignment, never touches date logic.
+
+  How it works:
+
+  1. Wraps `frappe.ui.form.AssignTo.prototype.render` once
+     (`patch_assign_render_for_timeline_check`), Task forms only.
+  2. First render = baseline (no warning on form load); later renders
+     diff the assignee list → only **newly added** users are checked.
+  3. `frappe.db.get_list("Task")` with date-overlap filters
+     (`exp_start_date <= end AND exp_end_date >= start`, excluding this
+     task) + `_assign LIKE` prefilter, then exact `JSON.parse(_assign)`
+     match client-side.
+  4. Failures are swallowed (`try/catch`) — assignment flow is never
+     interrupted.
 
 ### 6.3 `Status` DocType
 
@@ -409,23 +441,23 @@ task_management.js  →  charts, lists, paginated table  →  CSS
 
 Run as each role after `bench build` + hard reload.
 
-| Step | Employee | Project Manager | Main Manager (Vikas) | Task Manager |
-|---|---|---|---|---|
-| KPI titles show | My … | Project … | All … | All … |
-| My Projects section | hidden | lead projects + counts | team's projects + counts | all projects + counts |
-| Default table tab | My | Team | All | All |
-| Tabs visible | My | My, Team | My, Team, All | My, Team, All |
-| `tab=all` API as that user | PermissionError (UI hidden) | PermissionError (UI hidden) | OK (within hierarchy scope) | OK (unrestricted) |
-| Project dropdown | Own projects only | Own lead projects only | Projects led by reporting tree | All |
-| Employee dropdown | Self | Employees with tasks in own projects + self | Reporting tree | All active |
-| Click Total KPI | table total = KPI | = | = |
-| Click Overdue / Critical / Completed | table total = KPI | = | = |
-| Apply Project + Status filter | all widgets update together | = | = |
-| Employee filter outside scope | no rows (1=0) | no rows | n/a (unrestricted) |
-| Table pagination | Prev/Next edges correct | = | = |
-| Row click | opens Task form | = | = |
-| Priority donut sum | = Total KPI | = | = |
-| Delay buckets | match delayed list count | = | = |
+| Step | Employee | Project Manager | HR (HR Manager/User) | Main Manager (Vikas) | Task Manager |
+|---|---|---|---|---|---|
+| KPI titles show | My … | Project … | Project … | All … | All … |
+| My Projects section | hidden | lead projects + counts | HR projects + counts | team's projects + counts | all projects + counts |
+| Default table tab | My | Team | Team | All | All |
+| Tabs visible | My | My, Team | My, Team | My, Team, All | My, Team, All |
+| `tab=all` API as that user | PermissionError (UI hidden) | PermissionError (UI hidden) | PermissionError (UI hidden) | OK (within hierarchy scope) | OK (unrestricted) |
+| Project dropdown | Own projects only | Own lead projects only | Own HR projects only | Projects led by/HR-assigned to reporting tree | All |
+| Employee dropdown | Self | Employees with tasks in own projects + self | Employees with tasks in own projects + self | Reporting tree | All active |
+| Click Total KPI | table total = KPI | = | = | = | = |
+| Click Overdue / Critical / Completed | table total = KPI | = | = | = | = |
+| Apply Project + Status filter | all widgets update together | = | = | = | = |
+| Employee filter outside scope | no rows (1=0) | no rows | no rows | n/a (in tree only) | n/a (unrestricted) |
+| Table pagination | Prev/Next edges correct | = | = | = | = |
+| Row click | opens Task form | = | = | = | = |
+| Priority donut sum | = Total KPI | = | = | = | = |
+| Delay buckets | match delayed list count | = | = | = | = |
 
 **Assertion rule:** for every role and filter combination, each KPI number
 must equal the table `total` shown after clicking that KPI.

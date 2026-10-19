@@ -10,3 +10,4 @@ task_custom_app.patches.add_delayed_by_field
 task_custom_app.patches.add_days_field
 task_custom_app.patches.add_fields_on_task
 task_custom_app.patches.add_project_lead_field
+task_custom_app.patches.add_hr_field_on_project
