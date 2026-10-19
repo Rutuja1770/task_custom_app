@@ -1,3 +1,5 @@
+import json
+
 import frappe
 
 
@@ -17,6 +19,71 @@ def can_view_all():
     return bool(roles.intersection({"Main Manager", "Task Manager"}))
 
 
+def is_project_manager():
+    """Return True when the user has the Project Manager role."""
+    return "Project Manager" in set(frappe.get_roles(frappe.session.user))
+
+
+def get_project_manager_projects(user=None):
+    """Return project names where the user is the assigned lead."""
+    user = user or frappe.session.user
+
+    return frappe.get_all(
+        "Project",
+        filters={"custom_project_lead": user},
+        pluck="name",
+        limit_page_length=0,
+    )
+
+
+def get_project_team_users(assigned_projects):
+    """Return users assigned to any non-cancelled task in the projects."""
+    if not assigned_projects:
+        return set()
+
+    rows = frappe.get_all(
+        "Task",
+        filters={
+            "project": ["in", assigned_projects],
+            "status": ["!=", "Cancelled"],
+        },
+        fields=["_assign"],
+        limit_page_length=0,
+    )
+
+    users = set()
+
+    for row in rows:
+        try:
+            assigned = json.loads(row._assign or "[]")
+        except (TypeError, ValueError):
+            continue
+
+        if isinstance(assigned, list):
+            users.update(assigned)
+
+    return users
+
+
+def get_hierarchy_projects(user):
+    """Return projects led by anyone in the user's reporting tree.
+
+    Used by the top manager (Main Manager): they see the projects
+    handled by their direct and indirect reports (e.g. leads).
+    """
+    tree_users = get_reporting_employee_users(user)
+
+    if not tree_users:
+        return []
+
+    return frappe.get_all(
+        "Project",
+        filters={"custom_project_lead": ["in", tree_users]},
+        pluck="name",
+        limit_page_length=0,
+    )
+
+
 def get_task_dashboard_scope():
     """Return the users whose assigned tasks are visible in the dashboard."""
 
@@ -27,26 +94,8 @@ def get_task_dashboard_scope():
     if roles.intersection({"Main Manager", "Task Manager"}):
         return None
 
-    # Find the logged-in user's Employee record in Employee Master.
-    current_employee = frappe.db.get_value(
-        "Employee",
-        {"user_id": user},
-        "name",
-    )
-
-    # If no Employee record exists, restrict to the logged-in user.
-    if not current_employee:
-        return [user]
-
-    # Project Manager: self + all direct and indirect reporting employees.
-    if "Project Manager" in roles:
-        visible_users = get_reporting_employee_users(user)
-
-        # Fail closed if the reporting hierarchy returns no users.
-        if not visible_users:
-            return [user]
-
-        return sorted(set(visible_users) | {user})
+    # Project Manager scope is project-based (see get_dashboard_conditions),
+    # not reporting-tree based, so it is not computed here.
 
     # Employee / Task User: only their own assigned tasks.
     return [user]
@@ -71,23 +120,75 @@ def get_dashboard_conditions(
     conditions = ["COALESCE(t.status, '') != 'Cancelled'"]
     params = {}
 
-    # Apply the logged-in user's mandatory access scope.
-    visible_users = get_task_dashboard_scope()
+    user = frappe.session.user
+    roles = set(frappe.get_roles(user))
 
-    if visible_users is not None:
-        assignment_conditions = []
+    # Track user-based scope so the employee filter can be validated
+    # against it. None means unrestricted (managers) or project-based
+    # (Project Manager) — no per-user membership check applies.
+    visible_users = None
 
-        for index, user_id in enumerate(visible_users):
-            param_name = f"scope_user_{index}"
-            params[param_name] = user_id
-            assignment_conditions.append(_assignment_clause(param_name))
+    if "Main Manager" in roles:
+        # Top manager (e.g. Vikas): hierarchy scope — projects led by
+        # anyone in their reporting tree (e.g. Nilesh's + Parveen's
+        # projects), plus tasks assigned directly to them.
+        visible_users = get_reporting_employee_users(user) or [user]
+        hierarchy_projects = get_hierarchy_projects(user)
+        scope_clauses = []
 
-        if assignment_conditions:
-            conditions.append(
-                "(" + " OR ".join(assignment_conditions) + ")"
+        if hierarchy_projects:
+            placeholders = []
+
+            for index, project_name in enumerate(hierarchy_projects):
+                param_name = f"scope_project_{index}"
+                params[param_name] = project_name
+                placeholders.append(f"%({param_name})s")
+
+            scope_clauses.append(
+                f"t.project IN ({', '.join(placeholders)})"
             )
-        else:
-            conditions.append("1 = 0")
+
+        params["scope_main_user"] = user
+        scope_clauses.append(_assignment_clause("scope_main_user"))
+
+        conditions.append(
+            "(" + " OR ".join(scope_clauses) + ")"
+        )
+
+    elif "Task Manager" in roles:
+        # Unrestricted scope (system/admin role).
+        pass
+
+    elif "Project Manager" in roles:
+        # Project-based scope: all tasks under projects the user leads,
+        # plus anything assigned directly to the user.
+        assigned_projects = get_project_manager_projects(user)
+        scope_clauses = []
+
+        if assigned_projects:
+            placeholders = []
+
+            for index, project_name in enumerate(assigned_projects):
+                param_name = f"scope_project_{index}"
+                params[param_name] = project_name
+                placeholders.append(f"%({param_name})s")
+
+            scope_clauses.append(
+                f"t.project IN ({', '.join(placeholders)})"
+            )
+
+        params["scope_pm_user"] = user
+        scope_clauses.append(_assignment_clause("scope_pm_user"))
+
+        conditions.append(
+            "(" + " OR ".join(scope_clauses) + ")"
+        )
+
+    else:
+        # Employee / Task User: only their own assigned tasks.
+        visible_users = [user]
+        params["scope_user_0"] = user
+        conditions.append(_assignment_clause("scope_user_0"))
 
     # Optional dashboard filters narrow the authorized task scope.
     if project:
@@ -147,7 +248,7 @@ def get_dashboard_context():
     if managers:
         scope_label = "All"
     elif is_pm:
-        scope_label = "Team"
+        scope_label = "Project"
     else:
         scope_label = "My"
 
@@ -156,6 +257,7 @@ def get_dashboard_context():
         "scope_label": scope_label,
         "can_view_all": managers,
         "can_view_team": managers or is_pm,
+        "is_project_manager": is_pm,
         "employee_name": employee_name or user,
     }
 
@@ -529,9 +631,12 @@ def get_task_list_data(
         conditions.append(_assignment_clause("tab_user"))
 
     elif tab == "team":
-        visible_users = get_task_dashboard_scope()
+        # Project Manager: base scope already covers their projects and
+        # own assignments — no extra condition needed.
+        # Managers: unrestricted; team == all for them.
+        # Employees: user-based scope (UI hides the tab).
+        visible_users = None if is_project_manager() else get_task_dashboard_scope()
 
-        # Managers are unrestricted; team == all for them.
         if visible_users is not None:
             team_conditions = []
 
@@ -584,10 +689,12 @@ def get_task_list_data(
             t.custom_action,
             COALESCE(t.custom_delayed_by, 0) AS delayed_by,
             COALESCE(t.custom_days, 0) AS days,
-            t.exp_end_date,
+            DATE(t.exp_end_date) AS exp_end_date,
             t.project,
+            COALESCE(NULLIF(p.project_name, ''), t.project) AS project_name,
             t._assign
         FROM `tabTask` t
+        LEFT JOIN `tabProject` p ON p.name = t.project
         WHERE {where}
         ORDER BY
             COALESCE(t.custom_delayed_by, 0) DESC,
@@ -621,10 +728,37 @@ def get_project_filter_options():
     user = frappe.session.user
     roles = set(frappe.get_roles(user))
 
-    # Main Manager and Task Manager can see all projects.
-    if roles.intersection({"Main Manager", "Task Manager"}):
+    if "Main Manager" in roles:
+        # Top manager: projects led by anyone in their reporting tree.
+        tree_users = get_reporting_employee_users(user) or [user]
+
         projects = frappe.get_all(
             "Project",
+            filters={"custom_project_lead": ["in", tree_users]},
+            fields=["name", "project_name"],
+            order_by="project_name asc",
+            limit_page_length=0,
+        )
+
+    elif "Task Manager" in roles:
+        # Unrestricted (system/admin role): all projects.
+        projects = frappe.get_all(
+            "Project",
+            fields=["name", "project_name"],
+            order_by="project_name asc",
+            limit_page_length=0,
+        )
+
+    elif "Project Manager" in roles:
+        # Project Manager sees only the projects assigned to them.
+        assigned_projects = get_project_manager_projects(user)
+
+        if not assigned_projects:
+            return []
+
+        projects = frappe.get_all(
+            "Project",
+            filters={"name": ["in", assigned_projects]},
             fields=["name", "project_name"],
             order_by="project_name asc",
             limit_page_length=0,
@@ -741,7 +875,24 @@ def get_employee_filter_options():
     user = frappe.session.user
     roles = set(frappe.get_roles(user))
 
-    if "Main Manager" in roles or "Task Manager" in roles:
+    if "Main Manager" in roles:
+        # Top manager: employees under them via the reporting hierarchy
+        # (Employee.reports_to), including direct and indirect reports.
+        visible_users = get_reporting_employee_users(user) or [user]
+
+        employees = frappe.get_all(
+            "Employee",
+            filters={
+                "user_id": ["in", visible_users],
+                "status": "Active",
+            },
+            fields=["name", "employee_name", "user_id"],
+            order_by="employee_name asc",
+            limit_page_length=0,
+        )
+
+    elif "Task Manager" in roles:
+        # Unrestricted (system/admin role): all active employees.
         employees = frappe.get_all(
             "Employee",
             filters={"status": "Active"},
@@ -749,6 +900,24 @@ def get_employee_filter_options():
             order_by="employee_name asc",
             limit_page_length=0,
         )
+
+    elif "Project Manager" in roles:
+        # Project Manager sees employees working on their projects
+        # (anyone assigned to a task in an assigned project) + self.
+        assigned_projects = get_project_manager_projects(user)
+        team_users = get_project_team_users(assigned_projects) | {user}
+
+        employees = frappe.get_all(
+            "Employee",
+            filters={
+                "user_id": ["in", sorted(team_users)],
+                "status": "Active",
+            },
+            fields=["name", "employee_name", "user_id"],
+            order_by="employee_name asc",
+            limit_page_length=0,
+        )
+
     else:
         visible_users = get_reporting_employee_users(user)
 
@@ -773,4 +942,88 @@ def get_employee_filter_options():
         }
         for emp in employees
         if emp.user_id
+    ]
+
+
+# =========================================================
+# MY PROJECTS (Project Manager assigned projects)
+# =========================================================
+
+
+@frappe.whitelist()
+def get_my_projects():
+    """Return the user's visible projects with task counts.
+
+    Main Manager: projects led by anyone in their reporting tree.
+    Task Manager: all projects. Project Manager: own lead projects.
+    Employees: empty list.
+    """
+
+    user = frappe.session.user
+    roles = set(frappe.get_roles(user))
+
+    if "Main Manager" in roles:
+        project_names = get_hierarchy_projects(user)
+
+    elif "Task Manager" in roles:
+        project_names = frappe.get_all(
+            "Project",
+            pluck="name",
+            limit_page_length=0,
+        )
+
+    elif "Project Manager" in roles:
+        project_names = get_project_manager_projects(user)
+
+    else:
+        return []
+
+    if not project_names:
+        return []
+
+    count_rows = frappe.db.sql(
+        f"""
+        SELECT
+            t.project,
+            COUNT(*) AS total_tasks,
+            SUM(
+                CASE WHEN t.status NOT IN ('Completed', 'Cancelled')
+                    THEN 1 ELSE 0 END
+            ) AS open_tasks,
+            SUM(
+                CASE WHEN t.status NOT IN ('Completed', 'Cancelled')
+                      AND COALESCE(t.custom_delayed_by, 0) > 0
+                    THEN 1 ELSE 0 END
+            ) AS overdue_tasks
+        FROM `tabTask` t
+        WHERE t.project IN %(projects)s
+          AND COALESCE(t.status, '') != 'Cancelled'
+        GROUP BY t.project
+        """,
+        {"projects": tuple(project_names)},
+        as_dict=True,
+    )
+
+    counts = {row.project: row for row in count_rows}
+
+    projects = frappe.get_all(
+        "Project",
+        filters={"name": ["in", project_names]},
+        fields=["name", "project_name"],
+        order_by="project_name asc",
+        limit_page_length=0,
+    )
+
+    return [
+        {
+            "project": project.name,
+            "project_name": project.project_name or project.name,
+            "total_tasks": counts[project.name].total_tasks
+            if project.name in counts else 0,
+            "open_tasks": counts[project.name].open_tasks
+            if project.name in counts else 0,
+            "overdue_tasks": counts[project.name].overdue_tasks
+            if project.name in counts else 0,
+        }
+        for project in projects
     ]
