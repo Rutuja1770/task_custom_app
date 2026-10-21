@@ -19,7 +19,8 @@ task data. Same page, different view, depending on the user's role:
 
 | Widget | What it shows |
 |---|---|
-| **My Projects** cards | Projects in your scope with total/open/overdue counts (Main Manager + Project Manager only) |
+| **My Projects** cards | Projects in your scope with total/open/overdue counts (Main Manager + Project Manager + HR) |
+| **Available Employees** | Users on your team free for the next 1–7 (or custom) days — **PM, Task Manager, Main Manager only** |
 | **4 KPI cards** | Total, Overdue, Critical, Completed — titles adapt: "My …" / "Project …" / "All …" |
 | **Charts** | Delay range (bar), Upcoming deadlines (bar), Priority donut |
 | **Lists** | Delayed tasks, Upcoming deadlines |
@@ -151,7 +152,34 @@ Clicking a card applies that Project filter to the whole dashboard and scrolls
 to the task table. Cards highlight in amber/red when the project has overdue
 tasks.
 
-### 4.2 KPI cards (Total / Overdue / Critical / Completed)
+### 4.2 Available Employees (next N days)
+
+**Who:** Project Manager, Task Manager, Main Manager **only** — HR roles and
+employees never see it (panel hidden + API raises `PermissionError`).
+
+**Who is listed:**
+
+```
+CANDIDATES = users assigned to tasks in YOUR dashboard scope
+             + users with an open Project-level ToDo on your scope projects
+BUSY       = any unfinished task (≠ Completed/Cancelled)
+             with exp_end_date ≤ today + N days  ← includes OVERDUE tasks
+AVAILABLE  = CANDIDATES − BUSY
+```
+
+- Completed task due on the 21st → user **is available** (work done)
+- Pending task due after the window → user still **available** in window
+- Pending task with no date → ignored (timeline-based)
+- Busy check is global — tasks outside your scope still occupy the user
+- **Project assignees count**: assigning someone to a Project (Assign To on
+  the project form) makes them a candidate even if they have no tasks
+
+**Controls:** day chips `1–7` + custom number input (1–30, default 7).
+
+**Card info:** avatar initial, full name, email, designation; chip shows the
+user count, subtitle shows the window end date.
+
+### 4.3 KPI cards (Total / Overdue / Critical / Completed)
 
 | KPI | Counts tasks that… |
 |---|---|
@@ -163,7 +191,7 @@ tasks.
 Clicking any KPI filters the in-page task table to show exactly those tasks —
 the table's total always equals the KPI number.
 
-### 4.3 Global filters
+### 4.4 Global filters
 
 Filters only **narrow** your scope — they can never expand it:
 
@@ -177,7 +205,7 @@ Filters only **narrow** your scope — they can never expand it:
 Selecting an Employee **outside** your scope returns zero rows (server-side
 `1 = 0` guard) — it is not an error, just empty.
 
-### 4.4 Task table tabs
+### 4.5 Task table tabs
 
 | Tab | Vikas | Nilesh/Parveen | HR | Employees |
 |---|---|---|---|---|
@@ -185,7 +213,7 @@ Selecting an Employee **outside** your scope returns zero rows (server-side
 | Team Tasks | All tasks in hierarchy projects | All tasks in their lead projects | All tasks in her HR projects | Hidden |
 | All Tasks | All tasks in hierarchy projects | Hidden (blocked server-side) | Hidden (blocked server-side) | Hidden (blocked server-side) |
 
-### 4.5 Charts & lists
+### 4.6 Charts & lists
 
 Delay chart, deadline chart, priority donut, delayed list, upcoming list —
 all use the same role scope as the KPIs. No extra rules to remember: if a
@@ -255,6 +283,7 @@ Test as each user after `bench build` + hard reload:
 | Check | Vikas | Nilesh/Parveen | HR | Employee |
 |---|---|---|---|---|
 | My Projects cards | Team's projects (Renu + BHS) | Own lead projects only | Own HR-marked projects only | Hidden |
+| Available Employees section | visible | visible | **hidden** | visible |
 | KPI titles | "All …" | "Project …" | "Project …" | "My …" |
 | Default tab | All | Team | Team | My |
 | Project dropdown | Tree-led/HR projects | Own lead projects | Own HR-marked projects | Own projects |

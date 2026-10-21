@@ -2055,3 +2055,331 @@
         grid-template-columns: 1fr;
     }
 }
+
+/* ---------- Available Employees (PM / Task / Main Manager) ---------- */
+
+.employees-panel {
+    margin-bottom: 4px;
+}
+
+.employees-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 16px;
+}
+
+.employees-toolbar-label {
+    color: var(--text-3);
+    font-size: 12.5px;
+    font-weight: 600;
+}
+
+.employee-days {
+    display: inline-flex;
+    gap: 4px;
+    padding: 4px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--page-bg);
+}
+
+.employee-day-chip {
+    min-width: 32px;
+    height: 28px;
+    padding: 0 8px;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-2);
+    font-family: var(--font);
+    font-size: 12.5px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease,
+        box-shadow 0.15s ease;
+}
+
+.employee-day-chip:hover {
+    background: var(--indigo-ghost);
+    color: var(--indigo);
+}
+
+.employee-day-chip.active {
+    background: linear-gradient(
+        135deg,
+        var(--indigo-light),
+        var(--indigo)
+    );
+    color: #fff;
+    box-shadow: var(--shadow-xs);
+}
+
+.employee-day-chip:focus-visible {
+    outline: 2px solid var(--indigo);
+    outline-offset: 1px;
+}
+
+.employee-days-input {
+    width: 74px;
+    height: 34px;
+    padding: 6px 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-size: 12.5px;
+    font-weight: 600;
+}
+
+.employee-days-input:focus {
+    border-color: var(--indigo-light);
+    box-shadow: 0 0 0 3px var(--indigo-ghost);
+    outline: none;
+}
+
+.employees-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+    gap: 14px;
+}
+
+.employee-card {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 14px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--card-bg);
+    box-shadow: var(--shadow-xs);
+    transition: box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.employee-card:hover {
+    border-color: var(--teal);
+    box-shadow: var(--shadow-md);
+}
+
+.employee-avatar {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--teal), var(--indigo));
+    color: #fff;
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: 0;
+}
+
+.employee-info {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.employee-name {
+    color: var(--navy);
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: -0.2px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.employee-email {
+    color: var(--text-3);
+    font-size: 11.5px;
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.employee-designation {
+    color: var(--teal);
+    font-size: 11px;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.employees-empty {
+    padding: 18px 8px;
+    color: var(--text-3);
+    font-size: 12.5px;
+    font-weight: 500;
+    text-align: center;
+}
+
+@media (max-width: 640px) {
+    .employees-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .employees-toolbar {
+        gap: 8px;
+    }
+}
+
+/* ---------- Quick KPI toggles (My Projects / Available Employees) ---------- */
+
+.quick-kpi-row {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+    margin-bottom: 20px;
+}
+
+.quick-kpi-card {
+    position: relative;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--card-bg);
+    box-shadow: var(--shadow-xs);
+    cursor: pointer;
+    overflow: hidden;
+    transition: box-shadow 0.2s ease, border-color 0.2s ease,
+        transform 0.15s ease;
+}
+
+.quick-kpi-card:hover {
+    box-shadow: var(--shadow-md);
+    transform: translateY(-1px);
+}
+
+.quick-kpi-card:focus-visible {
+    outline: 2px solid var(--indigo);
+    outline-offset: 2px;
+}
+
+.quick-kpi-card.active {
+    border-color: var(--indigo);
+    box-shadow: 0 0 0 3px var(--indigo-ghost), var(--shadow-md);
+}
+
+.quick-kpi-accent {
+    height: 4px;
+    width: 100%;
+    background: linear-gradient(
+        90deg,
+        var(--amber),
+        var(--coral)
+    );
+}
+
+.quick-kpi-teal .quick-kpi-accent {
+    background: linear-gradient(
+        90deg,
+        var(--teal),
+        var(--indigo)
+    );
+}
+
+.quick-kpi-inner {
+    padding: 14px 16px 12px;
+}
+
+.quick-kpi-top {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    margin-bottom: 10px;
+}
+
+.quick-kpi-icon {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    border-radius: var(--radius-sm);
+    background: linear-gradient(
+        135deg,
+        var(--amber),
+        var(--coral)
+    );
+    color: #fff;
+    font-size: 18px;
+    box-shadow: var(--shadow-xs);
+}
+
+.quick-kpi-teal .quick-kpi-icon {
+    background: linear-gradient(
+        135deg,
+        var(--teal),
+        var(--indigo)
+    );
+}
+
+.quick-kpi-meta {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.quick-kpi-label {
+    color: var(--navy);
+    font-size: 13.5px;
+    font-weight: 700;
+    letter-spacing: -0.2px;
+}
+
+.quick-kpi-hint {
+    color: var(--text-3);
+    font-size: 11.5px;
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.quick-kpi-value {
+    color: var(--navy);
+    font-size: 30px;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.1;
+    letter-spacing: -0.5px;
+    margin-bottom: 8px;
+}
+
+.quick-kpi-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    color: var(--text-3);
+    font-size: 11.5px;
+    font-weight: 600;
+}
+
+.quick-kpi-arrow {
+    color: var(--text-3);
+    font-size: 14px;
+    font-weight: 700;
+    transition: transform 0.2s ease, color 0.2s ease;
+}
+
+.quick-kpi-card.active .quick-kpi-arrow {
+    transform: rotate(90deg);
+    color: var(--indigo);
+}
+
+.quick-kpi-card.active .quick-kpi-label {
+    color: var(--indigo);
+}
+
+@media (max-width: 640px) {
+    .quick-kpi-row {
+        grid-template-columns: 1fr;
+    }
+}

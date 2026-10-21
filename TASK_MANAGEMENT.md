@@ -22,6 +22,10 @@ so **KPI values always equal the in-page task table totals**.
 - Lists: Delayed tasks, Upcoming deadlines
 - **My Projects** section (Main Manager + Project Manager + HR): project cards
   with task counts; click a card to filter the dashboard by that project
+- **Available Employees** section (Project Manager + Task Manager + Main Manager
+  only — hidden for HR and employees): users in your team with no unfinished
+  task due within the next N days (day chips 1–7 + custom input 1–30).
+  Overdue pending tasks count as busy; Completed tasks do not
 - **In-dashboard task table** with tabs (My / Team / All), server-side
   pagination, and KPI drill-down (no route change)
 - Global filters: Project, Employee, Status, Priority (role-limited options)
@@ -170,6 +174,7 @@ API prefix:
 | `get_project_filter_options()` | `[{value, label}]` | Main Manager → projects led by/HR-assigned to reporting tree; Task Manager → all; PM/HR → own lead/HR projects; others → projects with in-scope tasks |
 | `get_employee_filter_options()` | `[{value, label}]` | Main Manager → reporting tree; Task Manager → all active; PM/HR → employees with tasks in own projects + self; others → reporting tree |
 | `get_my_projects()` | `[{project, project_name, total_tasks, open_tasks, overdue_tasks}]` | Main Manager → hierarchy projects; Task Manager → all; PM/HR → own lead/HR projects; Employees → `[]` |
+| **`get_available_employees(days)`** | `[{user, full_name, email, designation}]` | **PM / Task Manager / Main Manager only** — others get `PermissionError`. Candidates = users assigned to tasks in your dashboard scope + users with an open Project-level ToDo on your scope projects; busy = any unfinished task due ≤ today + days (global, incl. overdue); returns candidates − busy. `days` clamped 1–30 (default 7) |
 | **`hr_user_query(...)`** | link-search rows | `Project.custom_hr_user` dropdown — only enabled users with `HR Manager` / `HR User` roles |
 | **`get_task_list_data(...)`** | `{rows, total, limit, offset}` | **KPI-consistent paginated table** — see §3.5 |
 
@@ -245,7 +250,8 @@ Defined once in `DELAY_RANGES`:
 └── main.enterprise-dashboard
     ├── .top-header        Filters ▼ | 🔄 Refresh | + New Task
     ├── .filter-toolbar    Project / Employee / Status / Priority (+ Clear)
-    ├── #my-projects-panel My Projects cards (Main Manager + Project Manager)
+    ├── #my-projects-panel My Projects cards (Main Manager + Project Manager + HR)
+    ├── #employees-panel   Available Employees (PM + Task Manager + Main Manager)
     ├── .kpi-grid          4 cards (role-adapted labels)
     ├── .dashboard-row     delay chart | deadline chart
     ├── .dashboard-row     delay list | upcoming list | priority donut

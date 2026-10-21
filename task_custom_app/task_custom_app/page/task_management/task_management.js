@@ -22,6 +22,8 @@ let last_overdue_count = 0;
 let last_upcoming_count = 0;
 let last_upcoming_urgent = 0;
 
+let employee_days = 7;
+
 
 function can_view_all_tasks() {
     if (dashboard_context && typeof dashboard_context.can_view_all === "boolean") {
@@ -96,11 +98,8 @@ frappe.pages["task-management"].on_page_load = function (wrapper) {
                             📋 All Tasks
                         </div>
                     ` : ""}
-                    <div class="menu-item" id="project-link">
-                        📁 Projects
-                    </div>
-                    <div class="menu-item" id="settings-link">
-                        ⚙️ Settings
+                    <div class="menu-item" id="timesheet-link">
+                        ⏱️ Timesheet
                     </div>
                 </div>
             </aside>
@@ -179,22 +178,93 @@ frappe.pages["task-management"].on_page_load = function (wrapper) {
                     </div>
 
 
-                <!-- My Projects (Main Manager + Project Manager) -->
-                <section class="dashboard-panel my-projects-panel"
-                         id="my-projects-panel" hidden>
-                    <div class="panel-header">
-                        <div class="panel-title-row">
-                            <div class="panel-icon" aria-hidden="true">📁</div>
-                            <div>
-                                <h4>My Projects</h4>
-                                <p class="panel-subtitle" id="my-projects-subtitle">
-                                    Projects assigned to you as lead
-                                </p>
+                <!-- Quick KPI toggles: My Projects + Available Employees -->
+                <div class="quick-kpi-row" id="quick-kpi-row">
+                    <div class="quick-kpi-card quick-kpi-amber"
+                         id="qp-my-projects" role="button" tabindex="0"
+                         data-panel="my-projects-panel" aria-expanded="false"
+                         aria-controls="my-projects-panel">
+                        <div class="quick-kpi-accent"></div>
+                        <div class="quick-kpi-inner">
+                            <div class="quick-kpi-top">
+                                <div class="quick-kpi-icon" aria-hidden="true">📁</div>
+                                <div class="quick-kpi-meta">
+                                    <div class="quick-kpi-label">My Projects</div>
+                                    <div class="quick-kpi-hint" id="qp-projects-hint">
+                                        Projects in your scope
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="quick-kpi-value" id="qp-projects-count">0</div>
+                            <div class="quick-kpi-footer">
+                                <span>Click to view projects</span>
+                                <span class="quick-kpi-arrow" aria-hidden="true">→</span>
                             </div>
                         </div>
-                        <span class="panel-chip" id="my-projects-chip">0 projects</span>
                     </div>
+
+                    <div class="quick-kpi-card quick-kpi-teal"
+                         id="qp-employees" role="button" tabindex="0"
+                         data-panel="employees-panel" aria-expanded="false"
+                         aria-controls="employees-panel" hidden>
+                        <div class="quick-kpi-accent"></div>
+                        <div class="quick-kpi-inner">
+                            <div class="quick-kpi-top">
+                                <div class="quick-kpi-icon" aria-hidden="true">🧑‍💻</div>
+                                <div class="quick-kpi-meta">
+                                    <div class="quick-kpi-label">Available Employees</div>
+                                    <div class="quick-kpi-hint" id="qp-employees-hint">
+                                        Users free in the period
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="quick-kpi-value" id="qp-employees-count">0</div>
+                            <div class="quick-kpi-footer">
+                                <span>Click to view employees</span>
+                                <span class="quick-kpi-arrow" aria-hidden="true">→</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+
+                <!-- My Projects panel (opens from KPI) -->
+                <section class="dashboard-panel my-projects-panel"
+                         id="my-projects-panel" hidden>
                     <div class="my-projects-grid" id="my-projects-grid"></div>
+                </section>
+
+
+                <!-- Available Employees panel (opens from KPI) -->
+                <section class="dashboard-panel employees-panel"
+                         id="employees-panel" hidden>
+                    <div class="employees-toolbar">
+                        <span class="employees-toolbar-label">Next</span>
+                        <div class="employee-days" id="employee-days"
+                             role="group" aria-label="Days window">
+                            <button type="button" class="employee-day-chip"
+                                    data-days="1">1</button>
+                            <button type="button" class="employee-day-chip"
+                                    data-days="2">2</button>
+                            <button type="button" class="employee-day-chip"
+                                    data-days="3">3</button>
+                            <button type="button" class="employee-day-chip"
+                                    data-days="4">4</button>
+                            <button type="button" class="employee-day-chip"
+                                    data-days="5">5</button>
+                            <button type="button" class="employee-day-chip"
+                                    data-days="6">6</button>
+                            <button type="button" class="employee-day-chip active"
+                                    data-days="7">7</button>
+                        </div>
+                        <input type="number" id="employee-days-input"
+                               class="form-control employee-days-input"
+                               min="1" max="30" value="7"
+                               aria-label="Custom days" />
+                        <span class="employees-toolbar-label">days</span>
+                    </div>
+
+                    <div class="employees-grid" id="employees-grid"></div>
                 </section>
 
 
@@ -520,14 +590,9 @@ frappe.pages["task-management"].on_page_load = function (wrapper) {
         frappe.set_route("task-management");
     });
 
-    $main.on("click", "#project-link", function () {
-        frappe.set_route("List", "Project");
-    });
-
-    // Settings: retain existing destination
-    $main.on("click", "#settings-link", function () {
-        frappe.route_options = null;
-        window.location.href = "/desk/task";
+    // TIMESHEET — ERPNext Timesheet list
+    $main.on("click", "#timesheet-link", function () {
+        frappe.set_route("List", "Timesheet");
     });
 
 
@@ -567,6 +632,27 @@ frappe.pages["task-management"].on_page_load = function (wrapper) {
     });
 
     $main.on("keydown", ".my-project-card", function (e) {
+        if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            $(this).trigger("click");
+        }
+    });
+
+    // Available Employees: day chips + custom days input
+    $main.on("click", ".employee-day-chip", function () {
+        set_employee_days($(this).attr("data-days"));
+    });
+
+    $main.on("change", "#employee-days-input", function () {
+        set_employee_days($(this).val());
+    });
+
+    // Quick KPI cards: toggle My Projects / Available Employees panels
+    $main.on("click", ".quick-kpi-card", function () {
+        toggle_quick_panel(this);
+    });
+
+    $main.on("keydown", ".quick-kpi-card", function (e) {
         if (e.key === "Enter" || e.key === " ") {
             e.preventDefault();
             $(this).trigger("click");
@@ -789,6 +875,7 @@ function refresh_dashboard() {
     load_priority_chart();
     load_task_table();
     load_my_projects();
+    load_available_employees();
 }
 
 
@@ -821,18 +908,18 @@ function load_my_projects() {
         dashboard_context.is_project_manager ||
         dashboard_context.can_view_all;
 
+    $("#qp-my-projects").prop("hidden", !show_section);
+
     if (!show_section) {
         $("#my-projects-panel").prop("hidden", true);
         return;
     }
 
-    $("#my-projects-panel").prop("hidden", false);
-
-    const subtitle = dashboard_context.is_project_manager
+    const hint = dashboard_context.is_project_manager
         ? "Projects assigned to you as lead"
         : "Projects handled by your team";
 
-    $("#my-projects-subtitle").text(subtitle);
+    $("#qp-projects-hint").text(hint);
 
     call_task_api("get_my_projects", {}, function (projects) {
         render_my_projects(projects || []);
@@ -844,9 +931,7 @@ function render_my_projects(projects) {
     const $grid = $("#my-projects-grid");
     const count = projects.length;
 
-    $("#my-projects-chip").text(
-        `${count} project${count === 1 ? "" : "s"}`
-    );
+    $("#qp-projects-count").text(count);
 
     if (!count) {
         $grid.html(
@@ -889,6 +974,125 @@ function render_my_projects(projects) {
         .join("");
 
     $grid.html(html);
+}
+
+
+// =========================================================
+// AVAILABLE EMPLOYEES (PM / Task Manager / Main Manager)
+// =========================================================
+
+
+function load_available_employees() {
+    $("#qp-employees").prop(
+        "hidden",
+        !dashboard_context.can_view_employees
+    );
+
+    if (!dashboard_context.can_view_employees) {
+        $("#employees-panel").prop("hidden", true);
+        return;
+    }
+
+    call_task_api(
+        "get_available_employees",
+        { days: employee_days },
+        function (users) {
+            render_available_employees(users || []);
+        }
+    );
+}
+
+
+function render_available_employees(users) {
+    const $grid = $("#employees-grid");
+    const count = users.length;
+
+    const window_end = frappe.datetime
+        .add_days(frappe.datetime.get_today(), employee_days)
+        .substring(0, 10);
+
+    let window_label = window_end;
+
+    try {
+        window_label = frappe.datetime.str_to_user(window_end) || window_end;
+    } catch (e) {
+        // keep raw date
+    }
+
+    $("#qp-employees-count").text(count);
+    $("#qp-employees-hint").text(
+        `No pending tasks due till ${frappe.utils.escape_html(window_label)}`
+    );
+
+    if (!count) {
+        $grid.html(
+            `<div class="employees-empty">
+                No available users for the next
+                ${employee_days} day${employee_days === 1 ? "" : "s"}.
+            </div>`
+        );
+        return;
+    }
+
+    const html = users
+        .map(function (user) {
+            const name = frappe.utils.escape_html(
+                user.full_name || user.user
+            );
+            const email = frappe.utils.escape_html(
+                user.email || user.user
+            );
+            const designation = frappe.utils.escape_html(
+                user.designation || ""
+            );
+            const initial = frappe.utils.escape_html(
+                (
+                    String(user.full_name || user.user || "?")
+                        .trim()
+                        .charAt(0) || "?"
+                ).toUpperCase()
+            );
+
+            return `
+                <div class="employee-card" title="${email}">
+                    <div class="employee-avatar" aria-hidden="true">${initial}</div>
+                    <div class="employee-info">
+                        <div class="employee-name">${name}</div>
+                        <div class="employee-email">${email}</div>
+                        ${designation
+                            ? `<div class="employee-designation">${designation}</div>`
+                            : ""}
+                    </div>
+                </div>`;
+        })
+        .join("");
+
+    $grid.html(html);
+}
+
+
+function set_employee_days(days) {
+    days = Math.max(1, Math.min(30, parseInt(days, 10) || 7));
+
+    employee_days = days;
+    $("#employee-days-input").val(days);
+    $("#employee-days .employee-day-chip").removeClass("active");
+    $(
+        `#employee-days .employee-day-chip[data-days="${days}"]`
+    ).addClass("active");
+
+    load_available_employees();
+}
+
+
+function toggle_quick_panel(card) {
+    const $card = $(card);
+    const $panel = $("#" + $card.attr("data-panel"));
+    const open = $panel.prop("hidden");
+
+    $panel.prop("hidden", !open);
+    $card.toggleClass("active", open);
+    $card.attr("aria-expanded", open ? "true" : "false");
 }
 
 

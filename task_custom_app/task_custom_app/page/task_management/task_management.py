@@ -37,6 +37,86 @@ def is_project_manager():
     return bool(roles.intersection(PROJECT_SCOPE_ROLES))
 
 
+def can_view_employees():
+    """Return True for roles that may see the Available Employees section.
+
+    Project Manager, Task Manager and Main Manager only — HR roles and
+    employees are excluded.
+    """
+    roles = set(frappe.get_roles(frappe.session.user))
+    return bool(
+        roles.intersection(
+            {"Main Manager", "Task Manager", "Project Manager"}
+        )
+    )
+
+
+def _collect_assignees(rows):
+    """Parse Task._assign JSON rows into a set of user ids."""
+    users = set()
+
+    for row in rows:
+        try:
+            assigned = json.loads(row._assign or "[]")
+        except (TypeError, ValueError):
+            continue
+
+        if isinstance(assigned, list):
+            users.update(
+                user for user in assigned if isinstance(user, str)
+            )
+
+    return users
+
+
+def _get_scope_project_assignees(user=None):
+    """Users with open Project-level ToDo in the caller's project scope.
+
+    Main Manager → projects led by/HR-assigned to reporting tree.
+    Task Manager → all projects. Project-scope roles → own lead/HR
+    projects. Matches get_my_projects() scope so project assignees show
+    up as candidates for the same viewers who see the project cards.
+    """
+    user = user or frappe.session.user
+    roles = set(frappe.get_roles(user))
+
+    if "Main Manager" in roles:
+        project_names = get_hierarchy_projects(user)
+
+    elif "Task Manager" in roles:
+        project_names = frappe.get_all(
+            "Project",
+            pluck="name",
+            limit_page_length=0,
+        )
+
+    elif is_project_manager():
+        project_names = get_project_manager_projects(user)
+
+    else:
+        return set()
+
+    if not project_names:
+        return set()
+
+    todo_users = frappe.get_all(
+        "ToDo",
+        filters={
+            "reference_type": "Project",
+            "reference_name": ["in", project_names],
+            "status": "Open",
+        },
+        fields=["allocated_to"],
+        limit_page_length=0,
+    )
+
+    return {
+        todo.allocated_to
+        for todo in todo_users
+        if todo.allocated_to
+    }
+
+
 def get_project_manager_projects(user=None):
     """Return project names in the user's project scope.
 
@@ -295,6 +375,7 @@ def get_dashboard_context():
         "can_view_all": managers,
         "can_view_team": managers or is_pm,
         "is_project_manager": is_pm,
+        "can_view_employees": can_view_employees(),
         "employee_name": employee_name or user,
     }
 
@@ -1069,6 +1150,126 @@ def get_my_projects():
         }
         for project in projects
     ]
+
+
+# =========================================================
+# AVAILABLE EMPLOYEES (next N days)
+# =========================================================
+
+
+@frappe.whitelist()
+def get_available_employees(days=7):
+    """Return scope-team users free for the next `days` days.
+
+    Visible to Project Manager, Task Manager and Main Manager only.
+
+    Candidates = users assigned to tasks inside the caller's dashboard
+    scope, plus users assigned to in-scope projects (open Project-level
+    ToDo). Busy = any user with an unfinished task (not Completed or
+    Cancelled) due on or before the end of the window — overdue pending
+    tasks count as busy, and tasks outside the caller's scope still
+    occupy the user. Available = candidates − busy.
+    """
+
+    if not can_view_employees():
+        raise frappe.PermissionError(
+            "Available Employees is not available for your role."
+        )
+
+    try:
+        days = int(days)
+    except (TypeError, ValueError):
+        days = 7
+
+    days = max(1, min(days, 30))
+
+    # Candidates: users assigned to tasks inside the caller's scope.
+    conditions, params = get_dashboard_conditions()
+
+    candidate_rows = frappe.db.sql(
+        f"""
+        SELECT t._assign
+        FROM `tabTask` t
+        WHERE {conditions}
+          AND COALESCE(t._assign, '') != ''
+        """,
+        params,
+        as_dict=True,
+    )
+
+    candidates = _collect_assignees(candidate_rows)
+
+    # Project-level assignees (open ToDo on in-scope projects).
+    candidates.update(_get_scope_project_assignees())
+
+    if not candidates:
+        return []
+
+    # Busy: unfinished tasks due on or before the window end
+    # (global — includes overdue and other-scope tasks).
+    busy_rows = frappe.db.sql(
+        """
+        SELECT t._assign
+        FROM `tabTask` t
+        WHERE COALESCE(t.status, '') NOT IN ('Completed', 'Cancelled')
+          AND t.exp_end_date IS NOT NULL
+          AND DATE(t.exp_end_date) <= DATE_ADD(
+              CURDATE(), INTERVAL %(days)s DAY
+          )
+          AND COALESCE(t._assign, '') != ''
+        """,
+        {"days": days},
+        as_dict=True,
+    )
+
+    busy = _collect_assignees(busy_rows)
+    available = sorted(candidates - busy)
+
+    if not available:
+        return []
+
+    users = frappe.get_all(
+        "User",
+        filters={"name": ["in", available], "enabled": 1},
+        fields=["name", "full_name", "email"],
+        limit_page_length=0,
+    )
+
+    employees = {
+        emp.user_id: emp
+        for emp in frappe.get_all(
+            "Employee",
+            filters={
+                "user_id": ["in", available],
+                "status": "Active",
+            },
+            fields=["user_id", "employee_name", "designation"],
+            limit_page_length=0,
+        )
+    }
+
+    result = []
+
+    for user in users:
+        employee = employees.get(user.name)
+        full_name = (
+            (employee.employee_name if employee else None)
+            or user.full_name
+            or user.email
+        )
+
+        result.append({
+            "user": user.name,
+            "full_name": full_name,
+            "email": user.email or user.name,
+            "designation": (
+                employee.designation if employee else None
+            )
+            or "",
+        })
+
+    result.sort(key=lambda item: (item["full_name"] or "").lower())
+    return result
 
 
 # =========================================================
