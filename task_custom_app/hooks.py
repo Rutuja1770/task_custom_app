@@ -21,3 +21,17 @@ doctype_js = {
     "Task": "public/js/task_custom.js",
     "Project": "public/js/project_custom.js"
 }
+
+
+doc_events = {
+    "Task": {
+        "after_insert": (
+            "task_custom_app.integrations.task_notification.on_task_created"
+        ),
+    },
+    "ToDo": {
+        "after_insert": (
+            "task_custom_app.integrations.task_notification.on_todo_created"
+        ),
+    },
+}
