@@ -163,7 +163,7 @@ frappe.pages["task-management"].on_page_load = function (wrapper) {
                                 <div class="filter-group">
                                     <label for="filter-status">Status</label>
                                     <select id="filter-status" class="form-control">
-                                        <option value="">All Statuses</option>
+                                        <option value="">All Status</option>
                                     </select>
                                 </div>
 
@@ -481,7 +481,7 @@ frappe.pages["task-management"].on_page_load = function (wrapper) {
                                     <th>Delayed</th>
                                     <th>End Date</th>
                                     <th>Project</th>
-                                    <th>Assigned To</th>
+                                    <th id="col-assigned-to">Assigned To</th>
                                 </tr>
                             </thead>
                             <tbody id="task-table-body">
@@ -1495,6 +1495,13 @@ function load_task_table() {
         table_state.limit = limit;
         table_state.offset = offset;
 
+        // Completed view: _assign is cleared by ERPNext, so the last
+        // column shows who completed the task instead.
+        const show_completed_by = table_state.kpi_view === "completed";
+        $("#col-assigned-to").text(
+            show_completed_by ? "Completed By" : "Assigned To"
+        );
+
         const start = total === 0 ? 0 : offset + 1;
         const end = Math.min(offset + limit, total);
         $("#table-range").text(`Showing ${start}–${end} of ${total}`);
@@ -1552,7 +1559,11 @@ function load_task_table() {
                         )}
                     </td>
                     <td>
-                        ${frappe.utils.escape_html(parse_assign(task._assign))}
+                        ${frappe.utils.escape_html(
+                            task.status === "Completed"
+                                ? parse_user(task.completed_by)
+                                : parse_assign(task._assign)
+                        )}
                     </td>
                 </tr>
             `;
@@ -1577,6 +1588,12 @@ function parse_assign(raw) {
     }
 
     return "—";
+}
+
+
+function parse_user(user_id) {
+    if (!user_id) return "—";
+    return String(user_id).split("@")[0];
 }
 
 
@@ -1659,7 +1676,7 @@ function load_dashboard_filter_options() {
         const $status = $("#filter-status");
         $status.empty();
         $status.append(
-            $("<option>", { value: "", text: "All Statuses" })
+            $("<option>", { value: "", text: "All Status" })
         );
 
         if (statusField && statusField.options) {

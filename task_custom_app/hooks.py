@@ -12,6 +12,7 @@ after_migrate = [
     "task_custom_app.patches.add_fields_on_task.execute",
     "task_custom_app.patches.add_project_lead_field.execute",
     "task_custom_app.patches.add_hr_field_on_project.execute",
+    "task_custom_app.patches.backfill_completed_by.execute",
 ]
 
 
@@ -27,6 +28,9 @@ doc_events = {
     "Task": {
         "after_insert": (
             "task_custom_app.integrations.task_notification.on_task_created"
+        ),
+        "before_save": (
+            "task_custom_app.integrations.task_notification.on_task_save"
         ),
     },
     "ToDo": {

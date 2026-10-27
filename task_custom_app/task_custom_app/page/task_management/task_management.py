@@ -226,6 +226,32 @@ def _assignment_clause(param_name):
     """
 
 
+def _user_clause(param_name):
+    """Match tasks in a user's scope.
+
+    Open tasks are matched through Task._assign (Frappe assignment).
+    ERPNext clears _assign when a task is marked Completed
+    (close_all_assignments), so completed tasks are matched through
+    Task.completed_by (set on completion) or the user's closed ToDo
+    on the task (covers tasks completed before completed_by existed).
+    """
+    return f"""
+        (
+            {_assignment_clause(param_name)}
+            OR t.completed_by = %({param_name})s
+            OR (
+                t.status = 'Completed'
+                AND EXISTS (
+                    SELECT 1 FROM `tabToDo` td
+                    WHERE td.reference_type = 'Task'
+                      AND td.reference_name = t.name
+                      AND td.allocated_to = %({param_name})s
+                )
+            )
+        )
+    """
+
+
 def get_dashboard_conditions(
     project=None,
     employee=None,
@@ -265,7 +291,7 @@ def get_dashboard_conditions(
             )
 
         params["scope_main_user"] = user
-        scope_clauses.append(_assignment_clause("scope_main_user"))
+        scope_clauses.append(_user_clause("scope_main_user"))
 
         conditions.append(
             "(" + " OR ".join(scope_clauses) + ")"
@@ -295,7 +321,7 @@ def get_dashboard_conditions(
             )
 
         params["scope_pm_user"] = user
-        scope_clauses.append(_assignment_clause("scope_pm_user"))
+        scope_clauses.append(_user_clause("scope_pm_user"))
 
         conditions.append(
             "(" + " OR ".join(scope_clauses) + ")"
@@ -305,7 +331,7 @@ def get_dashboard_conditions(
         # Employee / Task User: only their own assigned tasks.
         visible_users = [user]
         params["scope_user_0"] = user
-        conditions.append(_assignment_clause("scope_user_0"))
+        conditions.append(_user_clause("scope_user_0"))
 
     # Optional dashboard filters narrow the authorized task scope.
     if project:
@@ -317,7 +343,7 @@ def get_dashboard_conditions(
         if visible_users is not None and employee not in visible_users:
             conditions.append("1 = 0")
         else:
-            conditions.append(_assignment_clause("employee"))
+            conditions.append(_user_clause("employee"))
             params["employee"] = employee
 
     if status:
@@ -746,7 +772,7 @@ def get_task_list_data(
 
     if tab == "my":
         params["tab_user"] = user
-        conditions.append(_assignment_clause("tab_user"))
+        conditions.append(_user_clause("tab_user"))
 
     elif tab == "team":
         # Project-scope roles (PM / HR): base scope already covers their
@@ -761,7 +787,7 @@ def get_task_list_data(
             for index, user_id in enumerate(visible_users):
                 param_name = f"team_user_{index}"
                 params[param_name] = user_id
-                team_conditions.append(_assignment_clause(param_name))
+                team_conditions.append(_user_clause(param_name))
 
             if team_conditions:
                 conditions.append(
@@ -810,6 +836,7 @@ def get_task_list_data(
             DATE(t.exp_end_date) AS exp_end_date,
             t.project,
             COALESCE(NULLIF(p.project_name, ''), t.project) AS project_name,
+            t.completed_by,
             t._assign
         FROM `tabTask` t
         LEFT JOIN `tabProject` p ON p.name = t.project
@@ -904,7 +931,7 @@ def get_project_filter_options():
             for index, assigned_user in enumerate(visible_users):
                 key = f"scope_user_{index}"
                 params[key] = assigned_user
-                assignments.append(_assignment_clause(key))
+                assignments.append(_user_clause(key))
 
             task_filters.append(
                 "(" + " OR ".join(assignments) + ")"

@@ -2,7 +2,29 @@
 import json
 
 import frappe
-from frappe.utils import cint
+from frappe.utils import cint, today
+
+
+def on_task_save(doc, method=None):
+    """Record who completed the task.
+
+    ERPNext clears Task._assign on completion (close_all_assignments),
+    so the dashboard needs completed_by to keep showing the task in
+    the completer's Completed KPI.
+    """
+    if doc.status != "Completed":
+        return
+
+    previous = doc.get_db_value("status")
+
+    if previous == "Completed":
+        return
+
+    if not doc.completed_by:
+        doc.completed_by = frappe.session.user
+
+    if not doc.completed_on:
+        doc.completed_on = today()
 
 
 def on_task_created(doc, method=None):
