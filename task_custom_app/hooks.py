@@ -23,6 +23,11 @@ doctype_js = {
     "Project": "public/js/project_custom.js"
 }
 
+doctype_list_js = {
+    "Task": "public/js/list_visibility.js",
+    "Project": "public/js/list_visibility.js",
+}
+
 
 doc_events = {
     "Task": {
